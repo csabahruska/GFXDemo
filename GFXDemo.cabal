@@ -1,0 +1,65 @@
+Name:          GFXDemo
+Version:       0.0.1
+Cabal-Version: >= 1.2
+Synopsis:      Graphics Pipeline Demo
+Category:      Graphics
+Description:   Graphics Pipeline Demo
+Author:        Csaba Hruska
+Maintainer:    csaba (dot) hruska (at) gmail (dot) com
+Copyright:     (c) 2011, Csaba Hruska
+License:       BSD3
+License-File:  LICENSE
+Stability:     experimental
+Build-Type:    Simple
+Extra-Source-Files:
+  Binary/Fast.hs
+  Binary/Safe.hs
+  GLBackend.hs
+  GraphicsPipeline.hs
+  NOTES
+  Thrift/ContentConsumer.hs
+  Thrift/ContentConsumer_Client.hs
+  Thrift/ContentConsumer_Iface.hs
+  Thrift/ContentProvider.hs
+  Thrift/ContentProvider_Client.hs
+  Thrift/ContentProvider_Iface.hs
+  Thrift/Content_Consts.hs
+  Thrift/Content_Types.hs
+  ThriftUtils.hs
+  Utils.hs
+Data-Files:
+  Icosphere.lcmesh
+  Monkey.lcmesh
+  Plane.lcmesh
+  Scene.lcmesh
+  bloom/bloom.frag
+  bloom/bloom.vert
+  simple/simple.frag
+  simple/simple.vert
+  ssao/ssao.frag
+  ssao/ssao.vert
+  textures/Panels_Diffuse.png
+  textures/Panels_Normal_Obj.png
+  textures/Panels_Normal_Tangent.png
+  textures/Panels_reflection.png
+  textures/Panels_refmask.png
+  vsm/Blur.frag
+  vsm/Blur.vert
+  vsm/Final.frag
+  vsm/Final.vert
+  vsm/StoreDepth.frag
+  vsm/StoreDepth.vert
+
+Executable GFXDemo
+  HS-Source-Dirs: .
+  Main-IS:        Main.hs
+  Build-Depends:  base >= 4 && < 5, elerea > 2, GLFW-b, OpenGLRaw, vector, stb-image >= 0.2, vect,
+                  binary, data-binary-ieee754, bytestring, bitmap, thrift, containers, network, bytestring-trie
+  GHC-Options:    -O2 -Wall -fforce-recomp -fno-warn-unused-do-bind -fno-warn-name-shadowing
+
+Executable saveMesh
+  HS-Source-Dirs: .
+  Main-IS:        saveMesh.hs
+  Build-Depends:  base >= 4 && < 5, vector, vect, thrift, containers,
+                  binary, data-binary-ieee754, bytestring, network, bytestring-trie
+  GHC-Options:    -O2 -Wall -fforce-recomp -fno-warn-unused-do-bind -fno-warn-name-shadowing

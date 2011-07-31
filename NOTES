@@ -1,0 +1,231 @@
+what do we need for game graphics?
+
+- scene culling
+- scene sorting
+
+required info for pipeline from scene:
+    - shadow casters and receivers
+    - transparent objects
+
+at the moment:
+- we need bounding sphere/box for objects
+- camera objects (frustum)
+- lights:
+    point
+    directional
+    spot
+----
+always:
+    clip scene
+    collect visible objects
+nearly always:
+    sort transparent
+render all render queues
+
+todo:
+    draw data dependecies of these scene:
+        terrain
+        with skeletal animated objects
+        with dynamic lighting
+        with shadows (vsm/pssm)
+        with reflective water
+        with ssao
+        with bloom on some objects
+        with HUD
+required data from scene:
+
+one camera render use case:
+    requrements:
+        render frustum
+        meshes
+            bounding sphere/box
+            material description: shading information
+
+rendering stages:
+ -  scene -> [2D texture]
+ -  [2D texture] -> [2D texture]
+ -  [2D texture] -> 2D texture
+
+compiler:
+    maps scene elements into texture
+
+most trivial pipeline handler with baked modules (serial chain):
+
+ssao
+  IN:
+    - luminance texture
+    - render texture
+    - depth texture
+  OUT:
+    - render texture
+bloom
+  IN:
+    - render texture
+    - glow texture
+  OUT:
+    - render texture
+vsm
+  IN:
+    - camera
+        frustum
+    - light
+        frustum
+    - scene part
+        mesh list with bounding sphere/box
+  OUT:
+    - luminance texture
+pssm
+  IN:
+    - camera
+        frustum
+    - light
+        frustum
+    - scene part
+        mesh list with bounding sphere/box
+  OUT:
+    - luminance texture
+env mapping
+  IN:
+    - 
+-----------
+{-
+attribute types:
+    ok - FLOAT
+    ok - FLOAT_VEC2
+    ok - FLOAT_VEC3
+    ok - FLOAT_VEC4
+    ok - FLOAT_MAT2
+    ok - FLOAT_MAT3
+    ok - FLOAT_MAT4
+    FLOAT_MAT2x3
+    FLOAT_MAT2x4
+    FLOAT_MAT3x2
+    FLOAT_MAT3x4
+    FLOAT_MAT4x2
+    FLOAT_MAT4x3
+    ok - INT
+    INT_VEC2
+    INT_VEC3
+    INT_VEC4
+    ok - UNSIGNED_INT
+    UNSIGNED_INT_VEC2
+    UNSIGNED_INT_VEC3
+    UNSIGNED_INT_VEC4
+-}
+
+{-
+uniform types:
+    Float
+    Vec2
+    Vec3
+    Vec4
+    Int
+    ?? INT_VEC2
+    ?? INT_VEC3
+    ?? INT_VEC4
+    Word
+    ?? UNSIGNED_INT_VEC2
+    ?? UNSIGNED_INT_VEC3
+    ?? UNSIGNED_INT_VEC4
+    Bool
+    ?? BOOL_VEC2
+    ?? BOOL_VEC3
+    ?? BOOL_VEC4
+    Mat2
+    Mat3
+    Mat4
+    ?? FLOAT_MAT2x3
+    ?? FLOAT_MAT2x4
+    ?? FLOAT_MAT3x2
+    ?? FLOAT_MAT3x4
+    ?? FLOAT_MAT4x2
+    ?? FLOAT_MAT4x3
+    
+    ?? SAMPLER_1D
+    ?? SAMPLER_2D
+    ?? SAMPLER_3D
+    ?? SAMPLER_CUBE
+    ?? SAMPLER_1D_SHADOW
+    ?? SAMPLER_2D_SHADOW
+    ?? SAMPLER_1D_ARRAY
+    ?? SAMPLER_2D_ARRAY
+    ?? SAMPLER_1D_ARRAY_SHADOW
+    ?? SAMPLER_2D_ARRAY_SHADOW
+    ?? SAMPLER_2D_MULTISAMPLE
+    ?? SAMPLER_2D_MULTISAMPLE_ARRAY
+    ?? SAMPLER_CUBE_SHADOW
+    ?? SAMPLER_BUFFER
+    ?? SAMPLER_2D_RECT
+    ?? SAMPLER_2D_RECT_SHADOW
+    ?? INT_SAMPLER_1D
+    ?? INT_SAMPLER_2D
+    ?? INT_SAMPLER_3D
+    ?? INT_SAMPLER_CUBE
+    ?? INT_SAMPLER_1D_ARRAY
+    ?? INT_SAMPLER_2D_ARRAY
+    ?? INT_SAMPLER_2D_MULTISAMPLE
+    ?? INT_SAMPLER_2D_MULTISAMPLE_ARRAY
+    ?? INT_SAMPLER_BUFFER
+    ?? INT_SAMPLER_2D_RECT
+    ?? UNSIGNED_INT_SAMPLER_1D
+    ?? UNSIGNED_INT_SAMPLER_2D
+    ?? UNSIGNED_INT_SAMPLER_3D
+    ?? UNSIGNED_INT_SAMPLER_CUBE
+    ?? UNSIGNED_INT_SAMPLER_1D_ARRAY
+    ?? UNSIGNED_INT_SAMPLER_2D_ARRAY
+    ?? UNSIGNED_INT_SAMPLER_2D_MULTISAMPLE
+    ?? UNSIGNED_INT_SAMPLER_2D_MULTISAMPLE_ARRAY
+    ?? UNSIGNED_INT_SAMPLER_BUFFER
+    ?? UNSIGNED_INT_SAMPLER_2D_RECT
+-}
+
+{-
+stage 1:
+    have nice low level api
+hints:
+    shaders are defined with their input and output types
+        input:
+            - uniform variable list
+            - vertex attribute list
+            - varying variable list
+        output:
+            - varying variable list
+-}
+{-
+stage 2:
+    create the pipeline desription data types
+
+(simple one pass pipeline)
+one pass:
+    INPUT                                                   OUTPUT
+                            (vertex,geometry,fragment)
+    uniform variables   |       uniform variables   |
+    textures            |-->    textures            |-->    textures
+    attributes          |       varying variables   |       attributes
+
+hints:
+    - usage: before usage, the pipeline is compiled into IO computation
+        - render IO
+        - finalize IO
+        
+    - OUTPUT should be used as INPUT in a later pass
+-}
+
+{-
+vertex shader
+    input: (name, type)
+        uniforms
+        textures
+        attributes
+    output: varying (name,type)
+
+geometry shader
+    input: (name, type)
+        uniforms
+    output: varying (name,type)
+
+fragment shader
+    input: (name, type)
+        uniforms
+    output: 
+-}
