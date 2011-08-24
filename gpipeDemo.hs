@@ -1,5 +1,4 @@
 {-# LANGUAGE OverloadedStrings, PackageImports #-}
-import "GLFW-b" Graphics.UI.GLFW as GLFW
 import Control.Applicative
 import Control.Monad
 import Data.IORef
@@ -10,163 +9,116 @@ import Data.Vec.Nat
 import FRP.Elerea.Param
 import GPipeEffects
 import GPipeUtils
+import Utils as U
 import Graphics.GPipe
+import qualified Data.Map as Map
 import qualified Data.Vec as Vec
+import qualified Data.Vect.Float as V
+import Graphics.Rendering.OpenGL ( Position(..) )
 import Graphics.UI.GLUT( Window,
                          mainLoop,
                          postRedisplay,
                          idleCallback,
+                         passiveMotionCallback,
                          getArgsAndInitialize,
                          ($=),
                          KeyboardMouseCallback,
                          Key(..),
                          KeyState(..),
+                         SpecialKey(..),
                          keyboardMouseCallback)
 
 main :: IO ()
 main = do
     getArgsAndInitialize
-    initialize
+
+    -- setup FRP environment
+    (winSize,winSizeSink) <- external (0,0)
+    (mousePosition,mousePositionSink) <- external (0,0)
+    (buttonPress,buttonPressSink) <- external False
+    (fblrPress,fblrPressSink) <- external (False,False,False,False,False)
+
+    obj <- loadGPipeMesh "Monkey.lcmesh"
+
+    net <- start $ scene obj mousePosition fblrPress buttonPress winSize
+    keys <- newIORef $ Map.empty
+
+
     putStrLn "creating window..."
-    scene <- loadGPipeMesh "Monkey.lcmesh"
     newWindow "Green Triangle" 
         (100:.100:.()) 
         (800:.600:.()) 
-        (renderFrame scene)
-        initWindow
+        (renderFrame keys fblrPressSink buttonPressSink winSizeSink obj net)
+        (initWindow keys mousePositionSink)
     putStrLn "entering mainloop..."
     mainLoop
 
 --renderFrame :: Vec2 Int -> IO (FrameBuffer RGBFormat () ())
-renderFrame scene _ = do
-    let cm = scaling (1:.1:.1:.())
-        lm = scaling (1:.1:.1:.())
-    return $ vsm cm lm [scene]
+renderFrame keys fblrPress buttonPress winSize obj net (w:.h:.()) = do
+    km <- readIORef keys
+    let keyIsPressed c = case Map.lookup c km of
+            Nothing -> False
+            Just v -> v
 
-initWindow :: Window -> IO ()
-initWindow win = do
-    (mousePosition,mousePositionSink) <- external (0,0)
-    (_mousePress,mousePressSink) <- external False
-    (buttonPress,buttonPressSink) <- external False
-    (fblrPress,fblrPressSink) <- external (False,False,False,False,False)
-
-    idleCallback $= Nothing --Just (postRedisplay (Just win))
-    keyboardMouseCallback $= Just (keyboard mousePositionSink mousePressSink fblrPressSink buttonPressSink)
-{-
-    sc <- start $ scene ssao vsm bloom fb renderTex diffuseTex glProgram scn windowSize mousePosition fblrPress buttonPress
-    driveNetwork sc (readInput s mousePositionSink mousePressSink fblrPressSink buttonPressSink)
-
-    --displayCallback $= display state
-    --reshapeCallback $= Just reshape
-    --addTimerCallback timerFrequencyMillis (timer state)
-
-scene :: SSAO -> VSM -> Bloom -> GLFramebuffer -> GLColorTexture2D -> GLColorTexture2D -> GLProgram -> Scene -> Signal (Int, Int)
-      -> Signal (Float, Float)
-      -> Signal (Bool, Bool, Bool, Bool, Bool)
-      -> Signal (Bool)
-      -> SignalGen Float (Signal (IO ()))
-scene ssao vsm bloom fb rtex tex p scn windowSize mousePosition fblrPress buttonPress = do
-    re1 <- integral 0 1.5
-    re2 <- integral 10 (-1.0)
-    re3 <- integral 110 0.8
-    time <- stateful 0 (+)
-    last2 <- transfer ((0,0),(0,0)) (\_ n (_,b) -> (b,n)) mousePosition
-    let mouseMove = (\((ox,oy),(nx,ny)) -> (nx-ox,ny-oy)) <$> last2
-    --let mouseMove = mousePosition
-    cam <- userCamera (Vec3 (-4) 0 0) mouseMove fblrPress
-    return $ drawGLScene ssao vsm bloom fb rtex tex p scn <$> windowSize <*> re1 <*> re2 <*> re3 <*> cam <*> time <*> buttonPress
-
-drawGLScene :: SSAO -> VSM -> Bloom -> GLFramebuffer -> GLColorTexture2D -> GLColorTexture2D -> GLProgram -> Scene -> (Int, Int)
-            -> Float
-            -> Float
-            -> Float
-            -> (Vec3, Vec3, Vec3, t1)
-            -> Float
-            -> Bool
-            -> IO ()
-drawGLScene ssao vsm bloom fb rtex tex p objs (w,h) _re1 re2 re3 (cam,dir,up,_) time buttonPress = do
-    let cm = fromProjective (lookat cam (cam + dir) up)
-        pm = perspective 0.1 50 90 (fromIntegral w / fromIntegral h)
-
-        render t = withDepth $ do
-            clearGLFramebuffer
-            l <- forM objs $ \(worldMat,mesh) -> renderGLMesh' p mesh $ and <$> sequence
-                -- setup uniforms
-                [ setUniform p "cameraMatrix" $ U_Mat4 cm
-                , setUniform p "projectionMatrix" $ U_Mat4 pm
-                , setUniform p "time" $ U_Float time
-                , setSampler p "diffuseTexture" t
-                ]
-            let b = and l
-            unless b $ putStrLn "render fail"
-            return b
-
-    --withFramebuffer fb Nothing Nothing [rtex] $ render tex
-    --render rtex
-    --render tex
-
-    --renderBloom bloom rtex
-
-    --VSM
-    renderVSM (w,h) time vsm objs cm pm
-{ -
-    --glViewport 0 0 (fromIntegral w) (fromIntegral h)
-    -- SSAO
-    if buttonPress then render tex else do
-        withFramebuffer fb (Just $ ssaoDepthTexture ssao) Nothing [ssaoRenderTexture ssao] $ render tex
-        renderSSAO ssao
-- }
-    swapBuffers
-
-readInput :: State
-          -> ((Float, Float) -> IO a)
-          -> (Bool -> IO b)
-          -> ((Bool, Bool, Bool, Bool, Bool) -> IO c)
-          -> (Bool -> IO b)
-          -> IO (Maybe Float)
-readInput s mousePos mouseBut fblrPress buttonPress = do
+    winSize (w,h)
+    {-
     t <- getTime
     resetTime
 
     (x,y) <- getMousePosition
     mousePos (fromIntegral x,fromIntegral y)
-
-    mouseBut =<< mouseButtonIsPressed MouseButton0
-    fblrPress =<< ((,,,,) <$> keyIsPressed KeyLeft <*> keyIsPressed KeyUp <*> keyIsPressed KeyDown <*> keyIsPressed KeyRight <*> keyIsPressed KeyRightShift)
-    buttonPress =<< keyIsPressed KeySpace
-
-    updateFPS s t
-    k <- keyIsPressed KeyEsc
-    return $ if k then Nothing else Just (realToFrac t)
--}
-keyboard :: ((Float, Float) -> IO a)
-         -> (Bool -> IO b)
-         -> ((Bool, Bool, Bool, Bool, Bool) -> IO c)
-         -> (Bool -> IO b)
-         -> KeyboardMouseCallback
-keyboard mousePos mouseBut fblrPress buttonPress key keyState mods _  =   do
-    (x,y) <- getMousePosition
-    mousePos (fromIntegral x,fromIntegral y)
-
-    mouseBut =<< mouseButtonIsPressed MouseButton0
-    fblrPress =<< ((,,,,) <$> keyIsPressed KeyLeft <*> keyIsPressed KeyUp <*> keyIsPressed KeyDown <*> keyIsPressed KeyRight <*> keyIsPressed KeyRightShift)
-    buttonPress =<< keyIsPressed KeySpace
-    case (key, keyState) of
-    {-
-    (SpecialKey KeyLeft, Down) -> do
-                       angle <- takeMVar $ viewAngle state
-                       putMVar (viewAngle state) (angle+2)
-    (SpecialKey KeyRight, Down) -> do
-                       angle <- takeMVar $ viewAngle state
-                       putMVar (viewAngle state) (angle-2)
-    (SpecialKey KeyUp, Down) -> do
-                       height <- takeMVar $ viewHeight state
-                       putMVar (viewHeight state) (height-0.2)
-    (SpecialKey KeyDown, Down) -> do
-                       height <- takeMVar $ viewHeight state
-                       putMVar (viewHeight state) (height+0.2)
-    (Char 'p', Down) -> do
-                       isPaused <- takeMVar $ paused state
-                       putMVar (paused state) (not isPaused)
     -}
-        (_, _) -> return ()
+    fblrPress (keyIsPressed $ SpecialKey KeyLeft, keyIsPressed $ SpecialKey KeyUp, keyIsPressed $ SpecialKey KeyDown, keyIsPressed $ SpecialKey KeyRight, False)
+    buttonPress $ keyIsPressed $ Char ' '
+
+    --tmp <- keyIsPressed KeySpace
+    --print (x,y,tmp)
+    --updateFPS s t
+    let t = 0.1
+    join $ net $ realToFrac t
+
+--initWindow :: Window -> IO ()
+initWindow keys mousePositionSink win = do
+    keyboardMouseCallback $= Just (keyboard keys mousePositionSink)
+    passiveMotionCallback $= Just (\(Position x y) -> mousePositionSink (fromIntegral x,fromIntegral y))
+    idleCallback $= Just (postRedisplay (Just win))
+
+scene :: PrimitiveStream Triangle (Vec3 (Vertex Float))
+      -> Signal (Float, Float)
+      -> Signal (Bool, Bool, Bool, Bool, Bool)
+      -> Signal (Bool)
+      -> Signal (Int, Int)
+      -> SignalGen Float (Signal (IO (FrameBuffer RGBFormat () ())))
+scene obj mousePosition fblrPress buttonPress wh = do
+    time <- stateful 0 (+)
+    last2 <- transfer ((0,0),(0,0)) (\_ n (_,b) -> (b,n)) mousePosition
+    let mouseMove = (\((ox,oy),(nx,ny)) -> (nx-ox,ny-oy)) <$> last2
+    --let mouseMove = mousePosition
+    cam <- userCamera (V.Vec3 (-4) 0 0) mouseMove fblrPress
+    return $ drawGLScene obj <$> wh <*> cam <*> time <*> buttonPress
+
+convMat :: V.Mat4 -> Vec.Mat44 (Vertex Float)
+convMat m = toGPU $ (v a):.(v b):.(v c):.(v d):.()
+  where
+    V.Mat4 a b c d = V.transpose m
+    v (V.Vec4 x y z w) = x:.y:.z:.w:.()
+
+drawGLScene :: PrimitiveStream Triangle (Vec3 (Vertex Float))
+            -> (Int,Int)
+            -> (V.Vec3, V.Vec3, V.Vec3, t1)
+            -> Float
+            -> Bool
+            -> IO (FrameBuffer RGBFormat () ())
+drawGLScene obj (w,h) (cam,dir,up,_) time buttonPress = do
+    let cm = V.fromProjective (lookat cam (cam + dir) up)
+        pm = U.perspective 0.1 50 90 (fromIntegral w / fromIntegral h)
+    --let cm = scaling (1:.1:.1:.())
+        --lm = V.idmtx
+    return $ vsm (convMat (cm V..*. pm)) (convMat pm) [obj]
+
+-- Key -> KeyState -> Modifiers -> Position -> IO ()
+keyboard keys mousePos key keyState mods (Position x y) = do
+    mousePos (fromIntegral x,fromIntegral y)
+    modifyIORef keys $ \m -> case (key, keyState) of
+        (c, Down) -> Map.insert c True m
+        (c, Up) -> Map.insert c False m
