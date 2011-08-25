@@ -38,9 +38,12 @@ main = do
     (buttonPress,buttonPressSink) <- external False
     (fblrPress,fblrPressSink) <- external (False,False,False,False,False)
 
-    obj <- loadGPipeMesh "Monkey.lcmesh"
+    obj1 <- loadGPipeMesh "Monkey.lcmesh"
+    obj2 <- loadGPipeMesh "Scene.lcmesh"
+    obj3 <- loadGPipeMesh "Plane.lcmesh"
+    obj4 <- loadGPipeMesh "Icosphere.lcmesh"
 
-    net <- start $ scene obj mousePosition fblrPress buttonPress winSize
+    net <- start $ scene [obj1,obj2,obj3,obj4] mousePosition fblrPress buttonPress winSize
     keys <- newIORef $ Map.empty
 
 
@@ -48,13 +51,13 @@ main = do
     newWindow "Green Triangle" 
         (100:.100:.()) 
         (800:.600:.()) 
-        (renderFrame keys fblrPressSink buttonPressSink winSizeSink obj net)
+        (renderFrame keys fblrPressSink buttonPressSink winSizeSink net)
         (initWindow keys mousePositionSink)
     putStrLn "entering mainloop..."
     mainLoop
 
 --renderFrame :: Vec2 Int -> IO (FrameBuffer RGBFormat () ())
-renderFrame keys fblrPress buttonPress winSize obj net (w:.h:.()) = do
+renderFrame keys fblrPress buttonPress winSize net (w:.h:.()) = do
     km <- readIORef keys
     let keyIsPressed c = case Map.lookup c km of
             Nothing -> False
@@ -74,7 +77,7 @@ renderFrame keys fblrPress buttonPress winSize obj net (w:.h:.()) = do
     --tmp <- keyIsPressed KeySpace
     --print (x,y,tmp)
     --updateFPS s t
-    let t = 0.1
+    let t = 0.03
     join $ net $ realToFrac t
 
 --initWindow :: Window -> IO ()
@@ -83,38 +86,47 @@ initWindow keys mousePositionSink win = do
     passiveMotionCallback $= Just (\(Position x y) -> mousePositionSink (fromIntegral x,fromIntegral y))
     idleCallback $= Just (postRedisplay (Just win))
 
+{-
 scene :: PrimitiveStream Triangle (Vec3 (Vertex Float))
       -> Signal (Float, Float)
       -> Signal (Bool, Bool, Bool, Bool, Bool)
       -> Signal (Bool)
       -> Signal (Int, Int)
       -> SignalGen Float (Signal (IO (FrameBuffer RGBFormat () ())))
-scene obj mousePosition fblrPress buttonPress wh = do
+-}
+scene objs mousePosition fblrPress buttonPress wh = do
     time <- stateful 0 (+)
     last2 <- transfer ((0,0),(0,0)) (\_ n (_,b) -> (b,n)) mousePosition
     let mouseMove = (\((ox,oy),(nx,ny)) -> (nx-ox,ny-oy)) <$> last2
     --let mouseMove = mousePosition
     cam <- userCamera (V.Vec3 (-4) 0 0) mouseMove fblrPress
-    return $ drawGLScene obj <$> wh <*> cam <*> time <*> buttonPress
+    return $ drawGLScene objs <$> wh <*> cam <*> time <*> buttonPress
 
 convMat :: V.Mat4 -> Vec.Mat44 (Vertex Float)
 convMat m = toGPU $ (v a):.(v b):.(v c):.(v d):.()
   where
     V.Mat4 a b c d = V.transpose m
     v (V.Vec4 x y z w) = x:.y:.z:.w:.()
-
+{-
 drawGLScene :: PrimitiveStream Triangle (Vec3 (Vertex Float))
             -> (Int,Int)
             -> (V.Vec3, V.Vec3, V.Vec3, t1)
             -> Float
             -> Bool
             -> IO (FrameBuffer RGBFormat () ())
-drawGLScene obj (w,h) (cam,dir,up,_) time buttonPress = do
+-}
+drawGLScene objs (w,h) (cam,dir,up,_) time buttonPress = do
     let cm = V.fromProjective (lookat cam (cam + dir) up)
         pm = U.perspective 0.1 50 90 (fromIntegral w / fromIntegral h)
-    --let cm = scaling (1:.1:.1:.())
         --lm = V.idmtx
-    return $ vsm (convMat (cm V..*. pm)) (convMat pm) [obj]
+
+        lpos = V.Vec3 0.1 2 0.1
+        lat  = (V.Vec3 0 (-100) 0)
+        up   = V.Vec3 0 1 0
+        lmat = V.fromProjective (lookat lpos lat up)
+        pmat = U.perspective 0.1 5 90 (fromIntegral w / fromIntegral h)
+    return $ vsm (convMat (cm V..*. pm)) (convMat (lmat V..*. pmat)) objs
+    --return $ simple (convMat (cm V..*. pm)) objs
 
 -- Key -> KeyState -> Modifiers -> Position -> IO ()
 keyboard keys mousePos key keyState mods (Position x y) = do
