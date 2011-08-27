@@ -1,4 +1,4 @@
-{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings #-}
 module BSPLoader where
 
 import Data.Word
@@ -7,14 +7,15 @@ import Data.Bits
 import Control.Monad
 import Control.Applicative
 
-import Data.Vector.Storable (Vector)
-import qualified Data.Vector.Storable as V
+import Data.Vector (Vector)
+import qualified Data.Vector as V
+import qualified Data.ByteString as SB8
 import qualified Data.ByteString.Char8 as SB
 import qualified Data.ByteString.Lazy as LB
 import Data.Binary as B
 import Data.Binary.Get as B
 import Data.Binary.IEEE754
-import Data.Vect
+import Data.Vect hiding (Vector)
 
 --import Utils
 
@@ -56,7 +57,7 @@ bspVisData          = 16 :: Int -- ^ Stores PVS and cluster info (visibility)
 
 data Texture
     = Texture
-    { txName     :: ByteString
+    { txName     :: SB.ByteString
     , txFlags    :: Int
     , txContents :: Int
     }
@@ -121,7 +122,7 @@ data Vertex
 
 data Effect
     = Effect
-    { efName    :: ByteString
+    { efName    :: SB.ByteString
     , efBrush   :: Int
     , efUnknown :: Int
     }
@@ -147,7 +148,7 @@ data Face
 
 data LightMap
     = LightMap
-    { lmMap :: ByteString
+    { lmMap :: SB.ByteString
     }
 
 data LightVol
@@ -162,7 +163,7 @@ data VisData
 
 data BSPLevel
     = BSPLevel
-    { blEntities    :: ByteString
+    { blEntities    :: SB.ByteString
     , blTextures    :: Vector Texture
     , blPlanes      :: Vector Plane
     , blNodes       :: Vector Node
@@ -181,7 +182,7 @@ data BSPLevel
     , blVisData     :: VisData
     }
 
-getString   = fmap (S.unpack . S.takeWhile (/= '\0')) . getByteString
+getString   = fmap (SB.takeWhile (/= '\0')) . getByteString
 
 getWord     = getWord32le
 
@@ -191,21 +192,22 @@ getUByte3   = B.get :: Get (Word8,Word8,Word8)
 
 getFloat    = getFloat32le
 
-getVec3 f   = (\x y z -> x:.(z):.(-y):.()) <$> f <*> f <*> f
+getVec2     = Vec2 <$> getFloat <*> getFloat
+getVec3     = (\x y z -> Vec3 x z (-y)) <$> getFloat <*> getFloat <*> getFloat
+getVec2i    = (\x y -> Vec2 (fromIntegral x) (fromIntegral y)) <$> getInt <*> getInt
+getVec3i    = (\x y z -> Vec3 (fromIntegral x) (fromIntegral z) (fromIntegral (-y))) <$> getInt <*> getInt <*> getInt
 
-getVec2f    = (\x y -> x:.y:.()) <$> getFloat <*> getFloat
-getVec3f    = getVec3 getFloat
+getVec4RGBA = (\r g b a -> Vec4 (f r) (f g) (f b) (f a)) <$> getUByte <*> getUByte <*> getUByte <*> getUByte
+  where
+    f v = fromIntegral v / 255
 
-getInt'     = fromIntegral <$> getWord32le :: Get Int32
 getInt      = fromIntegral <$> getInt' :: Get Int
-getInt2     = (,) <$> getInt <*> getInt
-getVec2i    = (\x y -> x:.y:.()) <$> getInt <*> getInt
-getVec3i    = getVec3 getInt
+  where
+    getInt' = fromIntegral <$> getWord32le :: Get Int32
 
-getVec4b    = (\x y z w -> x:.y:.z:.w:.()) <$> getUByte <*> getUByte <*> getUByte <*> getUByte
+getInt2     = (,) <$> getInt <*> getInt
 
 getItems s act l = V.fromList <$> replicateM (l `div` s) act
-getItemsUV s act l = UV.fromList <$> replicateM (l `div` s) act
 
 getHeader = do
     magic <- getString 4
@@ -241,21 +243,20 @@ getBSPLevel el = BSPLevel
         g l
 
 getEntities l   = getString l
-getTextures     = getItems 72  $ Texture <$> getString 64 <*> getInt <*> getInt
-getPlanes       = getItems 16  $ Plane <$> getVec3f <*> getFloat
-getNodes        = getItems 36  $ Node <$> getInt <*> getVec2i <*> getVec3i <*> getVec3i
-getLeaves       = getItems 48  $ Leaf <$> getInt <*> getInt <*> (Vec.map fromIntegral <$> getVec3i)
-                                      <*> (Vec.map fromIntegral <$> getVec3i) <*> getInt <*> getInt <*> getInt <*> getInt
-getLeafFaces    = getItemsUV 4   getInt
-getLeafBrushes  = getItems 4     getInt
-getModels       = getItems 40  $ Model <$> getVec3f <*> getVec3f <*> getInt <*> getInt <*> getInt <*> getInt
-getBrushes      = getItems 12  $ Brush <$> getInt <*> getInt <*> getInt
-getBrushSides   = getItems 8   $ BrushSide <$> getInt <*> getInt
-getVertices     = getItems 44  $ Vertex <$> getVec3f <*> getVec2f <*> getVec2f <*> getVec3f <*> getVec4b
-getMeshIndices  = getItems 4     getInt
-getEffects      = getItems 72  $ Effect <$> getString 64 <*> getInt <*> getInt
-getFaces        = getItems 104 $ Face <$> getInt <*> getInt <*> getInt <*> getInt <*> getInt <*> getInt <*> getInt <*> getInt
-                                      <*> getVec2i <*> getVec2i <*> getVec3f <*> getVec3f <*> getVec3f <*> getVec3f <*> getVec2i
+getTextures     = getItems  72 $ Texture    <$> getString 64 <*> getInt <*> getInt
+getPlanes       = getItems  16 $ Plane      <$> getVec3 <*> getFloat
+getNodes        = getItems  36 $ Node       <$> getInt <*> getInt2 <*> getVec3i <*> getVec3i
+getLeaves       = getItems  48 $ Leaf       <$> getInt <*> getInt <*> getVec3i <*> getVec3i <*> getInt <*> getInt <*> getInt <*> getInt
+getLeafFaces    = getItems   4   getInt
+getLeafBrushes  = getItems   4   getInt
+getModels       = getItems  40 $ Model      <$> getVec3 <*> getVec3 <*> getInt <*> getInt <*> getInt <*> getInt
+getBrushes      = getItems  12 $ Brush      <$> getInt <*> getInt <*> getInt
+getBrushSides   = getItems   8 $ BrushSide  <$> getInt <*> getInt
+getVertices     = getItems  44 $ Vertex     <$> getVec3 <*> getVec2 <*> getVec2 <*> getVec3 <*> getVec4RGBA
+getMeshIndices  = getItems   4   getInt
+getEffects      = getItems  72 $ Effect     <$> getString 64 <*> getInt <*> getInt
+getFaces        = getItems 104 $ Face       <$> getInt <*> getInt <*> getInt <*> getInt <*> getInt <*> getInt <*> getInt <*> getInt
+                                            <*> getVec2i <*> getVec2i <*> getVec3 <*> getVec3 <*> getVec3 <*> getVec3 <*> getVec2i
 getLightmaps    = getItems (128*128*3) (LightMap <$> (getByteString $ 128*128*3))
 
 getLightVols = getItems 8 $ do
@@ -268,10 +269,10 @@ getVisData l = do
     nvecs   <- getInt
     szvecs  <- getInt
     vecs    <- getByteString $ nvecs * szvecs
-    return $ VisData nvecs szvecs $ UV.fromList $ BS.unpack vecs
+    return $ VisData nvecs szvecs $ V.fromList $ SB8.unpack vecs
 
 loadBSP :: String -> IO BSPLevel
-loadBSP n = readBSP <$> L.readFile n
+loadBSP n = readBSP <$> LB.readFile n
 
 readBSP dat = do
     let (magic,version,el) = runGet getHeader dat

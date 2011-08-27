@@ -235,6 +235,7 @@ renderVSM (w,h) time vsm ((_,o):(_,m):ox) camMat projMat = do
         clearGLFramebuffer
         l <- forM objs $ \(worldMat,mesh) ->
             renderGLMesh' stp mesh $ setUniform stp "worldProjection" $ U_Mat4 $ worldMat .*. lmat .*. pmat
+--            renderGLMesh' stp mesh $ setUniform stp "worldProjection" $ U_Mat4 $ worldMat .*. camMat .*. projMat
         return $ and l
 
     -- blur depth map
@@ -257,6 +258,7 @@ renderVSM (w,h) time vsm ((_,o):(_,m):ox) camMat projMat = do
                 --[ setUniform shp "worldProjection" $ U_Mat4 $ worldMat .*. lmat .*. pmat
                 [ setUniform shp "worldProjection" $ U_Mat4 $ worldMat .*. camMat .*. projMat
                 , setUniform shp "lightProjection" $ U_Mat4 $ worldMat .*. lmat .*. pmat
+                --, setUniform shp "lightProjection" $ U_Mat4 $ worldMat .*. camMat .*. projMat
                 , setSampler shp "shadowMap" dtex
                 ]
         return $ and l

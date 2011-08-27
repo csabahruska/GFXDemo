@@ -107,6 +107,7 @@ convMat m = toGPU $ (v a):.(v b):.(v c):.(v d):.()
   where
     V.Mat4 a b c d = V.transpose m
     v (V.Vec4 x y z w) = x:.y:.z:.w:.()
+
 {-
 drawGLScene :: PrimitiveStream Triangle (Vec3 (Vertex Float))
             -> (Int,Int)
@@ -118,14 +119,14 @@ drawGLScene :: PrimitiveStream Triangle (Vec3 (Vertex Float))
 drawGLScene objs (w,h) (cam,dir,up,_) time buttonPress = do
     let cm = V.fromProjective (lookat cam (cam + dir) up)
         pm = U.perspective 0.1 50 90 (fromIntegral w / fromIntegral h)
-        --lm = V.idmtx
 
         lpos = V.Vec3 0.1 2 0.1
         lat  = (V.Vec3 0 (-100) 0)
-        up   = V.Vec3 0 1 0
-        lmat = V.fromProjective (lookat lpos lat up)
-        pmat = U.perspective 0.1 5 90 (fromIntegral w / fromIntegral h)
-    return $ vsm (convMat (cm V..*. pm)) (convMat (lmat V..*. pmat)) objs
+        lup  = V.Vec3 0 1 0
+        lmat = V.fromProjective (lookat lpos lat lup)
+        pmat = U.perspective 0.4 5 90 (fromIntegral w / fromIntegral h)
+    return $ vsm (convMat (cm V..*. pm)) (convMat (cm V..*. pm)) objs
+    --return $ moments (convMat (cm V..*. pmat)) objs
     --return $ simple (convMat (cm V..*. pm)) objs
 
 -- Key -> KeyState -> Modifiers -> Position -> IO ()
