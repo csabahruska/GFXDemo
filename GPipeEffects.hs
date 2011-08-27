@@ -53,7 +53,7 @@ vsm cWorldProjection lWorldProjection objs = foldl' (\fb obj -> paintColorDepth 
     clear = newFrameBufferColorDepth (RGB (0:.0:.0:.())) 100
 
     shadowTexture :: Texture2D RGBFormat
-    shadowTexture = fromFrameBufferColor RGB32F (512:.512:.()) $ moments lWorldProjection objs
+    shadowTexture = fromFrameBufferColor RGB8 (512:.512:.()) $ moments lWorldProjection objs
 
     --vert :: Vec3 (Vertex Float) -> (Vec4 (Vertex Float),Vec4 (Vertex Float))
     vert v = (p,(p,lWorldProjection `multmv` v4))
