@@ -65,7 +65,7 @@ data SurfaceType
 geometry bsp = V.map convertSurface $ blSurfaces bsp    
   where
     convertSurface sf = case srSurfaceType sf of
-        --Planar       -> toGPUStream Point v
+        Planar       -> toIndexedGPUStream TriangleList v i
         --Patch        -> toGPUStream Point v
         TriangleSoup -> toIndexedGPUStream TriangleList v i
         --Flare        -> toGPUStream Point v

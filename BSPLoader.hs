@@ -37,40 +37,50 @@ All data in a BSP file is organized into records composed of these four data typ
 
 -- http://www.mralligator.com/q3/
 
-bspEntities         = 0 :: Int  -- ^ Game-related object descriptions
-bspTextures         = 1 :: Int  -- ^ Stores texture information
-bspPlanes           = 2 :: Int  -- ^ Stores the splitting planes
-bspNodes            = 3 :: Int  -- ^ Stores the BSP nodes
-bspLeaves           = 4 :: Int  -- ^ Stores the leafs of the nodes
-bspLeafFaces        = 5 :: Int  -- ^ Stores the leaf's indices into the faces
-bspLeafBrushes      = 6 :: Int  -- ^ Stores the leaf's indices into the brushes
-bspModels           = 7 :: Int  -- ^ Descriptions of rigid world geometry in map
-bspBrushes          = 8 :: Int  -- ^ Stores the brushes info (for collision)
-bspBrushSides       = 9 :: Int  -- ^ Stores the brush surfaces
-bspVertices         = 10 :: Int -- ^ Stores the level vertices
-bspMeshIndices      = 11 :: Int -- ^ Stores the level indices
-bspEffects          = 12 :: Int -- ^ List of special map effects
-bspFaces            = 13 :: Int -- ^ Stores the faces for the level
-bspLightmaps        = 14 :: Int -- ^ Stores the lightmaps for the level
-bspLightVols        = 15 :: Int -- ^ Local illumination data
-bspVisData          = 16 :: Int -- ^ Stores PVS and cluster info (visibility)
+lumpEntities     =  0 :: Int -- ^ Game-related object descriptions
+lumpShaders      =  1 :: Int -- ^ Stores texture information
+lumpPlanes       =  2 :: Int -- ^ Stores the splitting planes
+lumpNodes        =  3 :: Int -- ^ Stores the BSP nodes
+lumpLeaves       =  4 :: Int -- ^ Stores the leafs of the nodes
+lumpLeafSurfaces =  5 :: Int -- ^ Stores the leaf's indices into the faces
+lumpLeafBrushes  =  6 :: Int -- ^ Stores the leaf's indices into the brushes
+lumpModels       =  7 :: Int -- ^ Descriptions of rigid world geometry in map
+lumpBrushes      =  8 :: Int -- ^ Stores the brushes info (for collision)
+lumpBrushSides   =  9 :: Int -- ^ Stores the brush surfaces
+lumpDrawVertices = 10 :: Int -- ^ Stores the level vertices
+lumpDrawIndices  = 11 :: Int -- ^ Stores the level indices
+lumpFogs         = 12 :: Int -- ^ List of special map effects
+lumpSurfaces     = 13 :: Int -- ^ Stores the faces for the level
+lumpLightmaps    = 14 :: Int -- ^ Stores the lightmaps for the level
+lumpLightGrid    = 15 :: Int -- ^ Local illumination data
+lumpVisibility   = 16 :: Int -- ^ Stores PVS and cluster info (visibility)
 
-data Texture
-    = Texture
-    { txName     :: SB.ByteString
-    , txFlags    :: Int
-    , txContents :: Int
+data Model
+    = Model
+    { mdMins         :: Vec3
+    , mdMaxs         :: Vec3
+    , mdFirstSurface :: Int
+    , mdNumSurfaces  :: Int
+    , mdFirstBrush   :: Int
+    , mdNumBrushes   :: Int
+    }
+
+data Shader
+    = Shader
+    { shName         :: SB.ByteString
+    , shSurfaceFlags :: Int
+    , shContentFlags :: Int
     }
 
 data Plane
     = Plane
-    { plNormal  :: Vec3
-    , plDist    :: Float
+    { plNormal :: Vec3
+    , plDist   :: Float
     }
 
 data Node
     = Node
-    { ndPlane    :: Int
+    { ndPlaneNum :: Int
     , ndChildren :: (Int,Int)
     , ndMins     :: Vec3
     , ndMaxs     :: Vec3
@@ -78,108 +88,104 @@ data Node
 
 data Leaf
     = Leaf
-    { lfCluster         :: Int
-    , lfArea            :: Int
-    , lfMins            :: Vec3
-    , lfMaxs            :: Vec3
-    , lfLeafFace        :: Int
-    , lfNumLeafFaces    :: Int
-    , lfLeafBrush       :: Int
-    , lfNumLeafBrushes  :: Int
-    }
-
-data Model
-    = Model
-    { mdMins        :: Vec3
-    , mdMaxs        :: Vec3
-    , mdFace        :: Int
-    , mdNumFaces    :: Int
-    , mdBrush       :: Int
-    , mdNumBrushes  :: Int
-    }
-
-data Brush
-    = Brush
-    { brBrushSide       :: Int
-    , brNumBrushSides   :: Int
-    , brTexture         :: Int
+    { lfCluster          :: Int
+    , lfArea             :: Int
+    , lfMins             :: Vec3
+    , lfMaxs             :: Vec3
+    , lfFirstLeafSurface :: Int
+    , lfNumLeafSurfaces  :: Int
+    , lfFirstLeafBrush   :: Int
+    , lfNumLeafBrushes   :: Int
     }
 
 data BrushSide
     = BrushSide
-    { bsPlane   :: Int
-    , bsTexture :: Int
+    { bsPlaneNum  :: Int
+    , bsShaderNum :: Int
     }
 
-data Vertex
-    = Vertex
-    { vrPosition    :: Vec3
-    , vrTexCoord0   :: Vec2
-    , vrTexCoord1   :: Vec2
-    , vrNormal      :: Vec3
-    , vrColor       :: Vec4
+data Brush
+    = Brush
+    { brFirstSide :: Int
+    , brNumSides  :: Int
+    , brShaderNum :: Int
     }
 
-data Effect
-    = Effect
-    { efName    :: SB.ByteString
-    , efBrush   :: Int
-    , efUnknown :: Int
+data Fog
+    = Fog
+    { fgName        :: SB.ByteString
+    , fgBrushNum    :: Int
+    , fgVisibleSide :: Int
     }
 
-data Face
-    = Face
-    { fcTexture         :: Int
-    , fcEffect          :: Int
-    , fcType            :: Int
-    , fcVertex          :: Int
-    , fcNumVertices     :: Int
-    , fcMeshVert        :: Int
-    , fcNumMeshVerts    :: Int
-    , fcLMIndex         :: Int
-    , fcLMStrart        :: Vec2
-    , fcLMSize          :: Vec2
-    , fcLMOrigin        :: Vec3
-    , fcLMVecU          :: Vec3
-    , fcLMVecV          :: Vec3
-    , fcNormal          :: Vec3
-    , fcSize            :: Vec2
+data DrawVertex
+    = DrawVertex
+    { dvPosition    :: Vec3
+    , dvDiffuseUV   :: Vec2
+    , dvLightmaptUV :: Vec2
+    , dvNormal      :: Vec3
+    , dvColor       :: Vec4
     }
 
-data LightMap
-    = LightMap
+data SurfaceType
+    = Planar
+    | Patch
+    | TriangleSoup
+    | Flare
+
+data Surface
+    = Surface
+    { srShaderNum      :: Int
+    , srFogNum         :: Int
+    , srSurfaceType    :: SurfaceType
+    , srFirstVertex    :: Int
+    , srNumVertices    :: Int
+    , srFirstIndex     :: Int
+    , srNumIndices     :: Int
+    , srLightmapNum    :: Int
+    , srLightmapPos    :: Vec2
+    , srLightmapSize   :: Vec2
+    , srLightmapOrigin :: Vec3
+    , srLightmapVec1   :: Vec3
+    , srLightmapVec2   :: Vec3
+    , srLightmapVec3   :: Vec3
+    , srPatchSize      :: Vec2
+    }
+
+data Lightmap
+    = Lightmap
     { lmMap :: SB.ByteString
     }
 
-data LightVol
-    = LightVol
+data LightGrid
+    = LightGrid
 
-data VisData
-    = VisData
-    { vdNumVecs     :: Int
-    , vdSizeVecs    :: Int
-    , vdVecs        :: Vector Word8
+data Visibility
+    = Visibility
+    { vsNumVecs     :: Int
+    , vsSizeVecs    :: Int
+    , vsVecs        :: Vector Word8
     }
 
 data BSPLevel
     = BSPLevel
-    { blEntities    :: SB.ByteString
-    , blTextures    :: Vector Texture
-    , blPlanes      :: Vector Plane
-    , blNodes       :: Vector Node
-    , blLeafs       :: Vector Leaf
-    , blLeafFaces   :: Vector Int
-    , blLeafBrushes :: Vector Int
-    , blModels      :: Vector Model
-    , blBrushes     :: Vector Brush
-    , blBrushSides  :: Vector BrushSide
-    , blVertices    :: Vector Vertex
-    , blMeshVerts   :: Vector Int
-    , blEffects     :: Vector Effect
-    , blFaces       :: Vector Face
-    , blLightMaps   :: Vector LightMap
-    , blLightVols   :: Vector LightVol
-    , blVisData     :: VisData
+    { blEntities     :: SB.ByteString
+    , blShaders      :: Vector Shader
+    , blPlanes       :: Vector Plane
+    , blNodes        :: Vector Node
+    , blLeaves       :: Vector Leaf
+    , blLeafSurfaces :: Vector Int
+    , blLeafBrushes  :: Vector Int
+    , blModels       :: Vector Model
+    , blBrushes      :: Vector Brush
+    , blBrushSides   :: Vector BrushSide
+    , blDrawVertices :: Vector DrawVertex
+    , blDrawIndices  :: Vector Int
+    , blFogs         :: Vector Fog
+    , blSurfaces     :: Vector Surface
+    , blLightmaps    :: Vector Lightmap
+    , blLightgrid    :: Vector LightGrid
+    , blVisibility   :: Visibility
     }
 
 getString   = fmap (SB.takeWhile (/= '\0')) . getByteString
@@ -219,57 +225,64 @@ getHeader = do
     return (magic,version,el)
 
 getBSPLevel el = BSPLevel
-    <$> getLump getEntities      bspEntities
-    <*> getLump getTextures      bspTextures
-    <*> getLump getPlanes        bspPlanes
-    <*> getLump getNodes         bspNodes
-    <*> getLump getLeaves        bspLeaves
-    <*> getLump getLeafFaces     bspLeafFaces
-    <*> getLump getLeafBrushes   bspLeafBrushes
-    <*> getLump getModels        bspModels
-    <*> getLump getBrushes       bspBrushes
-    <*> getLump getBrushSides    bspBrushSides
-    <*> getLump getVertices      bspVertices
-    <*> getLump getMeshIndices   bspMeshIndices
-    <*> getLump getEffects       bspEffects
-    <*> getLump getFaces         bspFaces
-    <*> getLump getLightmaps     bspLightmaps
-    <*> getLump getLightVols     bspLightVols
-    <*> getLump getVisData       bspVisData
+    <$> getLump getEntities      lumpEntities
+    <*> getLump getShaders       lumpShaders
+    <*> getLump getPlanes        lumpPlanes
+    <*> getLump getNodes         lumpNodes
+    <*> getLump getLeaves        lumpLeaves
+    <*> getLump getLeafSurfaces  lumpLeafSurfaces
+    <*> getLump getLeafBrushes   lumpLeafBrushes
+    <*> getLump getModels        lumpModels
+    <*> getLump getBrushes       lumpBrushes
+    <*> getLump getBrushSides    lumpBrushSides
+    <*> getLump getDrawVertices  lumpDrawVertices
+    <*> getLump getDrawIndices   lumpDrawIndices
+    <*> getLump getFogs          lumpFogs
+    <*> getLump getSurfaces      lumpSurfaces
+    <*> getLump getLightmaps     lumpLightmaps
+    <*> getLump getLightGrid     lumpLightGrid
+    <*> getLump getVisibility    lumpVisibility
   where
     getLump g i = lookAhead $ do
         let (o,l) = el !! i
         skip o
         g l
 
+getSurfaceType  = getInt >>= \i -> return $ case i of
+    1 -> Planar
+    2 -> Patch
+    3 -> TriangleSoup
+    4 -> Flare
+    _ -> error "Invalid surface type"
+
 getEntities l   = getString l
-getTextures     = getItems  72 $ Texture    <$> getString 64 <*> getInt <*> getInt
+getShaders      = getItems  72 $ Shader     <$> getString 64 <*> getInt <*> getInt
 getPlanes       = getItems  16 $ Plane      <$> getVec3 <*> getFloat
 getNodes        = getItems  36 $ Node       <$> getInt <*> getInt2 <*> getVec3i <*> getVec3i
 getLeaves       = getItems  48 $ Leaf       <$> getInt <*> getInt <*> getVec3i <*> getVec3i <*> getInt <*> getInt <*> getInt <*> getInt
-getLeafFaces    = getItems   4   getInt
+getLeafSurfaces = getItems   4   getInt
 getLeafBrushes  = getItems   4   getInt
 getModels       = getItems  40 $ Model      <$> getVec3 <*> getVec3 <*> getInt <*> getInt <*> getInt <*> getInt
 getBrushes      = getItems  12 $ Brush      <$> getInt <*> getInt <*> getInt
 getBrushSides   = getItems   8 $ BrushSide  <$> getInt <*> getInt
-getVertices     = getItems  44 $ Vertex     <$> getVec3 <*> getVec2 <*> getVec2 <*> getVec3 <*> getVec4RGBA
-getMeshIndices  = getItems   4   getInt
-getEffects      = getItems  72 $ Effect     <$> getString 64 <*> getInt <*> getInt
-getFaces        = getItems 104 $ Face       <$> getInt <*> getInt <*> getInt <*> getInt <*> getInt <*> getInt <*> getInt <*> getInt
+getDrawVertices = getItems  44 $ DrawVertex <$> getVec3 <*> getVec2 <*> getVec2 <*> getVec3 <*> getVec4RGBA
+getDrawIndices  = getItems   4   getInt
+getFogs         = getItems  72 $ Fog        <$> getString 64 <*> getInt <*> getInt
+getSurfaces     = getItems 104 $ Surface    <$> getInt <*> getInt <*> getSurfaceType <*> getInt <*> getInt <*> getInt <*> getInt <*> getInt
                                             <*> getVec2i <*> getVec2i <*> getVec3 <*> getVec3 <*> getVec3 <*> getVec3 <*> getVec2i
-getLightmaps    = getItems (128*128*3) (LightMap <$> (getByteString $ 128*128*3))
+getLightmaps    = getItems (128*128*3) (Lightmap <$> (getByteString $ 128*128*3))
 
-getLightVols = getItems 8 $ do
+getLightGrid = getItems 8 $ do
     ambient     <- getUByte3
     directional <- getUByte3
     dir         <- getUByte2
-    return LightVol
+    return LightGrid
 
-getVisData l = do
+getVisibility l = do
     nvecs   <- getInt
     szvecs  <- getInt
     vecs    <- getByteString $ nvecs * szvecs
-    return $ VisData nvecs szvecs $ V.fromList $ SB8.unpack vecs
+    return $ Visibility nvecs szvecs $ V.fromList $ SB8.unpack vecs
 
 loadBSP :: String -> IO BSPLevel
 loadBSP n = readBSP <$> LB.readFile n
