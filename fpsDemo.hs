@@ -16,6 +16,7 @@ import Graphics.GPipe
 import qualified Data.Map as Map
 import qualified Data.Vec as Vec
 import qualified Data.Vect.Float as V
+import qualified Data.Vector as VC
 import Graphics.Rendering.OpenGL ( Position(..) )
 import Graphics.UI.GLUT( Window,
                          mainLoop,
@@ -41,13 +42,17 @@ main = do
     (buttonPress,buttonPressSink) <- external False
     (fblrPress,fblrPressSink) <- external (False,False,False,False,False)
 
-    bsp <- B.loadBSP "fps/maps/pukka3tourney7.bsp"
+    --bsp <- B.loadBSP "fps/maps/pukka3tourney7.bsp"
+    bsp <- B.loadBSP "fps/maps/chiropteradm.bsp"
     obj1 <- loadGPipeMesh "Monkey.lcmesh"
     obj2 <- loadGPipeMesh "Scene.lcmesh"
     obj3 <- loadGPipeMesh "Plane.lcmesh"
     obj4 <- loadGPipeMesh "Icosphere.lcmesh"
 
-    net <- start $ scene bsp mousePosition fblrPress buttonPress winSize
+    let gr b = geometry b
+        g = gr bsp
+    --print $ VC.length g
+    net <- start $ scene g mousePosition fblrPress buttonPress winSize
     keys <- newIORef $ Map.empty
 
 
@@ -122,17 +127,18 @@ drawGLScene :: PrimitiveStream Triangle (Vec3 (Vertex Float))
 -}
 drawGLScene bsp (w,h) (cam,dir,up,_) time buttonPress = do
     let cm = V.fromProjective (lookat cam (cam + dir) up)
-        pm = U.perspective 0.1 50 90 (fromIntegral w / fromIntegral h)
+        pm = U.perspective 0.1 500 90 (fromIntegral w / fromIntegral h)
 
         lpos = V.Vec3 0.1 2 0.1
         lat  = (V.Vec3 0 (-100) 0)
         lup  = V.Vec3 0 1 0
         lmat = V.fromProjective (lookat lpos lat lup)
         pmat = U.perspective 0.4 5 90 (fromIntegral w / fromIntegral h)
-    return $ renderBSP (convMat (cm V..*. pm)) bsp
+    --print "render frame"
+    --return $ renderBSP (convMat (cm V..*. pm)) bsp
     --return $ vsm (convMat (cm V..*. pm)) (convMat (cm V..*. pm)) objs
     --return $ moments (convMat (cm V..*. pmat)) objs
-    --return $ simple (convMat (cm V..*. pm)) objs
+    return $ renderBSP' (convMat (cm V..*. pm)) bsp
 
 -- Key -> KeyState -> Modifiers -> Position -> IO ()
 keyboard keys mousePos key keyState mods (Position x y) = do
