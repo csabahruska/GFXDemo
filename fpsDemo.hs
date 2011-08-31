@@ -43,15 +43,16 @@ main = do
     (fblrPress,fblrPressSink) <- external (False,False,False,False,False)
 
     --bsp <- B.loadBSP "fps/maps/pukka3tourney7.bsp"
-    bsp <- B.loadBSP "fps/maps/chiropteradm.bsp"
+    bsp <- B.loadBSP "fps/maps/SGDTT3.bsp"
+    --bsp <- B.loadBSP "fps/maps/chiropteradm.bsp"
     obj1 <- loadGPipeMesh "Monkey.lcmesh"
     obj2 <- loadGPipeMesh "Scene.lcmesh"
     obj3 <- loadGPipeMesh "Plane.lcmesh"
     obj4 <- loadGPipeMesh "Icosphere.lcmesh"
 
-    let gr b = geometry b
+    let gr b = geometry' b
         g = gr bsp
-    --print $ VC.length g
+    print $ VC.length g
     net <- start $ scene g mousePosition fblrPress buttonPress winSize
     keys <- newIORef $ Map.empty
 
@@ -135,10 +136,9 @@ drawGLScene bsp (w,h) (cam,dir,up,_) time buttonPress = do
         lmat = V.fromProjective (lookat lpos lat lup)
         pmat = U.perspective 0.4 5 90 (fromIntegral w / fromIntegral h)
     --print "render frame"
-    --return $ renderBSP (convMat (cm V..*. pm)) bsp
+    return $ renderBSP (convMat (cm V..*. pm)) bsp
     --return $ vsm (convMat (cm V..*. pm)) (convMat (cm V..*. pm)) objs
     --return $ moments (convMat (cm V..*. pmat)) objs
-    return $ renderBSP' (convMat (cm V..*. pm)) bsp
 
 -- Key -> KeyState -> Modifiers -> Position -> IO ()
 keyboard keys mousePos key keyState mods (Position x y) = do

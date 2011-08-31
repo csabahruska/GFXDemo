@@ -59,7 +59,7 @@ data SurfaceType
     | TriangleSoup
     | Flare
 -}
-{-
+
 -- toIndexedGPUStream
 --geometry :: BSPLevel -> V.Vector (PrimitiveStream Triangle (Vec3 (Vertex Float),Vec2 (Vertex Float),Vec2 (Vertex Float),Vec3 (Vertex Float),Vec4 (Vertex Float)))
 geometry' bsp = V.map convertSurface $ blSurfaces bsp    
@@ -75,13 +75,14 @@ geometry' bsp = V.map convertSurface $ blSurfaces bsp
         i = V.toList $ V.take (srNumIndices sf) $ V.drop (srFirstIndex sf) indices
     vertices = V.map convertVertex $ blDrawVertices bsp
     indices  = blDrawIndices bsp
-    convertVertex (DrawVertex p dt lt n c) = (v3 p{ -, v2 dt, v2 lt, v3 n, v4 c- })
+    convertVertex (DrawVertex p dt lt n c) = (v3 p {-, v2 dt, v2 lt, v3 n, v4 c-})
     v2 (Vect.Vec2 i j) = i:.j:.()
-    v3 (Vect.Vec3 i j k) = i:.j:.k:.()
+    v3 (Vect.Vec3 i j k) = (s i):.(s j):.(s k):.()
     v4 (Vect.Vec4 i j k l) = i:.j:.k:.l:.()
--}
-geometry :: BSPLevel -> PrimitiveStream Triangle (Vec3 (Vertex Float))
-geometry bsp = toGPUStream TriangleList $ V.toList $ V.map convertVertex $ V.concatMap convertSurface $ blSurfaces bsp    
+    s a = 0.01 * a
+
+geometry :: BSPLevel -> V.Vector (PrimitiveStream Triangle (Vec3 (Vertex Float)))
+geometry bsp = V.fromList [toGPUStream TriangleList $ V.toList $ V.map convertVertex $ V.concatMap convertSurface $ blSurfaces bsp]
   where
     convertSurface sf = case srSurfaceType sf of
         Planar       -> V.backpermute v i
@@ -102,9 +103,6 @@ renderBSP worldProjection bsp = V.foldl' (simple worldProjection) clear $ bsp
   where
     clear = newFrameBufferColorDepth (RGB (0:.0:.0:.())) 1000
 
-renderBSP' worldProjection bsp = simple worldProjection clear bsp
-  where
-    clear = newFrameBufferColorDepth (RGB (0:.0:.0:.())) 1000
 {-
 -- first we should render all faces
 drawBSPLevel ltl tl bl cp fr = do

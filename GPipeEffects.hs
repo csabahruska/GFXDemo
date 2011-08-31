@@ -73,3 +73,8 @@ vsm cWorldProjection lWorldProjection objs = foldl' (\fb obj -> paintColorDepth 
         p_max = variance / (variance + d*d)
 
         fn a = (p_max + 0.1) * fract' a
+
+-----------
+-- blur ---
+-----------
+
