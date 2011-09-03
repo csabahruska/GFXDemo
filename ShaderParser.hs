@@ -7,6 +7,7 @@ import Data.Attoparsec.Char8
 import Data.Attoparsec.Combinator
 import Data.ByteString.Char8 (ByteString)
 import Data.Char (toLower)
+import GPipeFPS
 import qualified Data.ByteString.Char8 as B
 
 -- utility parsers
@@ -15,6 +16,8 @@ shaderName = word
 
 skip :: Parser ()
 skip = skipSpace <* many (comment <* skipSpace)
+
+skipRest = skipWhile (\c -> c /= '\n' && c /= '\r')
 
 comment = (stringCI "//" <* skipWhile (\c -> c /= '\n' && c /= '\r')) <|> (string "/*" <* manyTill anyChar (try (string "*/")))
 
@@ -37,29 +40,34 @@ int = skip *> decimal
 
 waveFun = kw "sin" <|> kw "triangle" <|> kw "square" <|> kw "sawtooth" <|> kw "inversesawtooth" <|> kw "noise"
 
-shaders = many shader <* skipSpace
+shaders :: Parser [(ByteString,(Int,Renderer))]
+shaders = skip *> many shader <* skip
 
-shader = word <*
+shader :: Parser (ByteString,(Int,Renderer))
+shader = (\n -> (n,(0,errorRenderer Nothing))) <$> word <*
     kw "{" <*
         many (general <|> q3map <|> editor <|> stage) <*
     kw "}"
 
-general = skyParms  <|> cull        <|> deformVertexes  <|> fogParms    <|> 
-          nopicmip  <|> nomipmaps   <|> polygonOffset   <|> portal      <|> sort <|>
-          entityMergable
+general = skyParms          <|> cull        <|> deformVertexes  <|> fogParms    <|> 
+          nopicmip          <|> nomipmaps   <|> polygonOffset   <|> portal      <|> sort <|>
+          entityMergable    <|> fogonly
 
-q3map = q3MapSun <|> surfaceParm <|> 
+q3map = q3MapSun <|> surfaceParm <|> light <|> lightning <|> cloudparams <|> sky <|> foggen <|>
         tessSize <|> (skip *> stringCI "q3map_" *> skipWhile (\c -> c /= '\n' && c /= '\r'))
 
 editor = (skip *> stringCI "qer_" *> skipWhile (\c -> c /= '\n' && c /= '\r'))
 
 stage = kw "{" <* many stageAttrs <* kw "}"
-stageAttrs  = mapP  <|> clampMap    <|> animMap     <|> blendFunc   <|> rgbGen  <|> alphaGen    <|>
-              tcGen <|> tcMod       <|> depthFunc   <|> depthWrite  <|> detail  <|> alphaFunc
+stageAttrs  = mapP      <|> clampMap    <|> animMap     <|> blendFunc   <|> rgbGen  <|> alphaGen    <|>
+              tcGen     <|> tcMod       <|> depthFunc   <|> depthWrite  <|> detail  <|> alphaFunc   <|>
+              alphaMap
 
 --
 -- General Shader Keywords
 --
+
+fogonly = kw "fogonly"
 
 {-
 skyParms <farbox> <cloudheight> <nearbox>
@@ -71,21 +79,22 @@ skyParms <farbox> <cloudheight> <nearbox>
     “-“ - ignore (This has not been tested in a long time)
 -}
 
-skyParms = kw "skyparms" <* (kw "-" <|> (const () <$> word)) <* (float <|> (const 0 <$> kw "-")) <* kw "-"
+skyParms = kw "skyparms" <* (kw "-" <|> (const () <$> word)) <* (kw "-" <|> (const () <$> word)) <* kw "-"
 
-cull = kw "cull" <* (kw "front" <|> kw "back" <|> kw "disable" <|> kw "none" <|> kw "twosided")
+cull = kw "cull" <* (kw "front" <|> kw "back" <|> kw "disable" <|> kw "none" <|> kw "twosided" <|> kw "backsided")
 
 deformVertexes = kw "deformvertexes" <* (
-    kw "wave" <* float <* waveFun <* float <* float <* float <* float <|>
-    kw "normal" <* float <* float <|>
-    kw "bulge" <* float <* float <* float <|>
-    kw "move" <* float <* float <* float <* waveFun <* float <* float <* float <* float <|>
     kw "autosprite" <|>
     kw "autosprite2" <|>
-    kw "projectionshadow"
+    kw "bulge" <* float <* float <* float <|>
+    kw "move" <* float <* float <* float <* waveFun <* float <* float <* float <* float <|>
+    kw "normal" <* float <* float <|>
+    kw "projectionshadow" <|>
+    kw "text0" <|> kw "text1" <|> kw "text2" <|> kw "text3" <|> kw "text4" <|> kw "text5" <|> kw "text6" <|> kw "text7" <|>
+    kw "wave" <* float <* waveFun <* float <* float <* float <* float
     )
 
-fogParms = kw "fogparms" <* kw "(" <* float <* float <* float <* kw ")" <* float
+fogParms = kw "fogparms" <* option () (kw "(") <* float <* float <* float <* option () (kw ")") <* float <* skipRest
 
 nopicmip = kw "nopicmip"
 
@@ -103,6 +112,12 @@ sort = kw "sort" <* (kw "portal" <|> kw "sky" <|> kw "opaque" <|> kw "banner" <|
 --
 -- Q3MAP Specific Shader Keywords
 --
+cloudparams = kw "cloudparms" *> skipRest
+lightning = kw "lightning" *> skipRest
+light = (kw "light" <|> kw "light1") *> skipRest
+sky = kw "sky" *> skipRest
+foggen = kw "foggen" *> skipRest
+alphaMap = kw "alphamap" *> skipRest
 
 tessSize = kw "tesssize" <* float
 
@@ -117,6 +132,7 @@ surfaceParm = kw "surfaceparm" <* (
     <|> kw "slick"      <|> kw "noimpact"   <|> kw "nomarks"        <|> kw "ladder"     <|> kw "nodamage"
     <|> kw "metalsteps" <|> kw "flesh"      <|> kw "nosteps"        <|> kw "nodraw"     <|> kw "antiportal"
     <|> kw "pointlight" <|> kw "nolightmap" <|> kw "nodlight"       <|> kw "dust"       <|> kw "lightgrid"
+    <|> kw "nopicmip"   <|> kw "nomipmaps"
     )
 
 --
@@ -141,7 +157,7 @@ blendFunc     = kw "blendfunc" <* choice [blendFuncFunc, srcBlend <* dstBlend]
 rgbGen = kw "rgbgen" <* (
     kw "wave" <* waveFun <* float <* float <* float <* float
     <|> kw "const" <* kw "(" <* float <* float <* float <* kw ")"
-    <|> kw "identity"   <|> kw "identitylighting"   <|> kw "entity"             <|> kw "oneminusentity"
+    <|> kw "identity"    <|> kw "identitylighting"  <|> kw "entity"             <|> kw "oneminusentity"
     <|> kw "exactvertex" <|> kw "vertex"            <|> kw "lightingdiffuse"    <|> kw "oneminusvertex"
     )
 
@@ -160,13 +176,14 @@ tcGen = kw "tcgen" <* (
     )
 
 tcMod = kw "tcmod" <* (
-    kw "rotate" <* float <|>
-    kw "scale" <* float <* float <|>
-    kw "scroll" <* float <* float <|>
+    kw "entitytranslate" <|>
+    kw "environment" <|>
+    kw "rotate" <* float <* skipRest <|>
+    kw "scale" <* float <* float <* skipRest <|>
+    kw "scroll" <* float <* float <* skipRest <|>
     kw "stretch" <* waveFun <* float <* float <* float <* float <|>
     kw "transform" <* float <* float <* float <* float <* float <* float <|>
-    kw "turb" <* float <* float <* float <* float <|>
-    kw "entitytranslate"
+    kw "turb" <* option () (kw "sin") <* float <* float <* float <* float
     )
 
 depthFunc = kw "depthfunc" <* (kw "lequal" <|> kw "equal")

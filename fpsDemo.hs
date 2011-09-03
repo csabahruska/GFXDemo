@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 import Control.Applicative
 import Control.Monad
+import Data.Attoparsec.Char8
 import Data.IORef
 import Data.List
 import Data.Monoid
@@ -9,15 +10,19 @@ import Data.Vec.Nat
 import FRP.Elerea.Param
 import GPipeFPS
 import GPipeUtils
-import qualified BSPLoader as B
-import ShaderParser
-import Utils as U
 import Graphics.GPipe
+import Graphics.Rendering.OpenGL ( Position(..) )
+import ShaderParser
+import System.Directory
+import System.FilePath
+import Utils as U
+import qualified BSPLoader as B
+import qualified Data.ByteString.Char8 as SB
 import qualified Data.Map as Map
+import qualified Data.Trie as T
 import qualified Data.Vec as Vec
 import qualified Data.Vect.Float as V
 import qualified Data.Vector as VC
-import Graphics.Rendering.OpenGL ( Position(..) )
 import Graphics.UI.GLUT( Window,
                          mainLoop,
                          postRedisplay,
@@ -32,6 +37,20 @@ import Graphics.UI.GLUT( Window,
                          keyboardMouseCallback)
 
 
+loadShaders :: IO (T.Trie (Int,Renderer))
+loadShaders = do
+    l <- filter (\a -> ".shader" == takeExtension a) <$> getDirectoryContents "fps/scripts"
+    sl <- forM l $ \n -> do
+        s <- SB.readFile $ "fps/scripts/" ++ n
+        return $ case parse shaders s of
+            Done "" r -> r
+            Fail _ c _   -> error $ show (n,"failed",c)
+            Partial f -> case f "" of
+                Done "" r -> r
+                _   -> error $ show (n,"partial failed")
+            Done rem r -> error $ show (n,"failed", map fst r)
+    return $ T.fromList $ concat sl
+
 main :: IO ()
 main = do
     getArgsAndInitialize
@@ -45,17 +64,12 @@ main = do
     --bsp <- B.loadBSP "fps/maps/pukka3tourney7.bsp"
     bsp <- B.loadBSP "fps/maps/SGDTT3.bsp"
     --bsp <- B.loadBSP "fps/maps/chiropteradm.bsp"
-    obj1 <- loadGPipeMesh "Monkey.lcmesh"
-    obj2 <- loadGPipeMesh "Scene.lcmesh"
-    obj3 <- loadGPipeMesh "Plane.lcmesh"
-    obj4 <- loadGPipeMesh "Icosphere.lcmesh"
-
-    let gr b = geometry' b
+    shaders <- loadShaders
+    let gr b = compileBSP (fmap snd shaders) b
         g = gr bsp
     print $ VC.length g
     net <- start $ scene g mousePosition fblrPress buttonPress winSize
     keys <- newIORef $ Map.empty
-
 
     putStrLn "creating window..."
     newWindow "FPS Demo" 
@@ -136,9 +150,7 @@ drawGLScene bsp (w,h) (cam,dir,up,_) time buttonPress = do
         lmat = V.fromProjective (lookat lpos lat lup)
         pmat = U.perspective 0.4 5 90 (fromIntegral w / fromIntegral h)
     --print "render frame"
-    return $ renderBSP (convMat (cm V..*. pm)) bsp
-    --return $ vsm (convMat (cm V..*. pm)) (convMat (cm V..*. pm)) objs
-    --return $ moments (convMat (cm V..*. pmat)) objs
+    return $ renderSurfaces (toGPU time) (convMat (cm V..*. pm)) bsp
 
 -- Key -> KeyState -> Modifiers -> Position -> IO ()
 keyboard keys mousePos key keyState mods (Position x y) = do

@@ -43,7 +43,7 @@ main = do
     obj3 <- loadGPipeMesh "Plane.lcmesh"
     obj4 <- loadGPipeMesh "Icosphere.lcmesh"
 
-    net <- start $ scene [obj1,obj2,obj3,obj4] mousePosition fblrPress buttonPress winSize
+    net <- start $ scene (take 4 $ cycle [obj1,obj2,obj3,obj4]) mousePosition fblrPress buttonPress winSize
     keys <- newIORef $ Map.empty
 
 
