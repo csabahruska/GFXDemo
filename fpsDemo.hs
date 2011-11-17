@@ -3,10 +3,6 @@ import Control.Applicative
 import Control.Monad
 import Data.Attoparsec.Char8
 import Data.IORef
-import Data.List
-import Data.Monoid
-import Data.Vec.LinAlg.Transform3D
-import Data.Vec.Nat
 import FRP.Elerea.Param
 import GPipeFPS
 import GPipeUtils
@@ -61,9 +57,12 @@ main = do
     (buttonPress,buttonPressSink) <- external False
     (fblrPress,fblrPressSink) <- external (False,False,False,False,False)
 
-    --bsp <- B.loadBSP "fps/maps/pukka3tourney7.bsp"
-    bsp <- B.loadBSP "fps/maps/SGDTT3.bsp"
-    --bsp <- B.loadBSP "fps/maps/chiropteradm.bsp"
+    --bsp <- B.loadBSP "fps/maps/q3dm16.bsp"
+    --bsp <- B.loadBSP "fps/maps/q3dm17.bsp"
+    bsp <- B.loadBSP "fps/maps/q3dm18.bsp"
+    --bsp <- B.loadBSP "fps/maps/q3tourney6.bsp"
+    --bsp <- B.loadBSP "fps/maps/q3tourney3.bsp"
+    --bsp <- B.loadBSP "fps/maps/SGDTT3.bsp"
     shaders <- loadShaders
     let gr b = compileBSP (fmap snd shaders) b
         g = gr bsp
