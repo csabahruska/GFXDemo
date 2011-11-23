@@ -30,7 +30,9 @@ import Graphics.UI.GLUT( Window,
                          Key(..),
                          KeyState(..),
                          SpecialKey(..),
-                         keyboardMouseCallback)
+                         keyboardMouseCallback,
+                         elapsedTime,
+                         get)
 
 
 loadShaders :: IO (T.Trie (Int,Renderer))
@@ -57,30 +59,36 @@ main = do
     (buttonPress,buttonPressSink) <- external False
     (fblrPress,fblrPressSink) <- external (False,False,False,False,False)
 
+    --bsp <- B.loadBSP "fps/maps/ct3ctf2.bsp"
+    --bsp <- B.loadBSP "fps/maps/q3ctf2.bsp"
+    --bsp <- B.loadBSP "fps/maps/q3dm3.bsp"
     --bsp <- B.loadBSP "fps/maps/q3dm16.bsp"
     --bsp <- B.loadBSP "fps/maps/q3dm17.bsp"
-    bsp <- B.loadBSP "fps/maps/q3dm18.bsp"
+    --bsp <- B.loadBSP "fps/maps/q3dm18.bsp"
     --bsp <- B.loadBSP "fps/maps/q3tourney6.bsp"
-    --bsp <- B.loadBSP "fps/maps/q3tourney3.bsp"
+    bsp <- B.loadBSP "fps/maps/q3tourney3.bsp"
     --bsp <- B.loadBSP "fps/maps/SGDTT3.bsp"
+    --bsp <- B.loadBSP "fps/maps/q3tourney1.bsp"
+    --bsp <- B.loadBSP "fps/maps/erta1.bsp"
     shaders <- loadShaders
-    let gr b = compileBSP (fmap snd shaders) b
+    let gr b = compileBSP shaders b
         g = gr bsp
     print $ VC.length g
-    net <- start $ scene g mousePosition fblrPress buttonPress winSize
+    net <- start $ scene bsp g mousePosition fblrPress buttonPress winSize
     keys <- newIORef $ Map.empty
+    tr <- newIORef =<< get elapsedTime
 
     putStrLn "creating window..."
     newWindow "FPS Demo" 
         (100:.100:.()) 
         (800:.600:.()) 
-        (renderFrame keys fblrPressSink buttonPressSink winSizeSink net)
+        (renderFrame tr keys fblrPressSink buttonPressSink winSizeSink net)
         (initWindow keys mousePositionSink)
     putStrLn "entering mainloop..."
     mainLoop
 
 --renderFrame :: Vec2 Int -> IO (FrameBuffer RGBFormat () ())
-renderFrame keys fblrPress buttonPress winSize net (w:.h:.()) = do
+renderFrame tr keys fblrPress buttonPress winSize net (w:.h:.()) = do
     km <- readIORef keys
     let keyIsPressed c = case Map.lookup c km of
             Nothing -> False
@@ -100,8 +108,11 @@ renderFrame keys fblrPress buttonPress winSize net (w:.h:.()) = do
     --tmp <- keyIsPressed KeySpace
     --print (x,y,tmp)
     --updateFPS s t
-    let t = 0.03
-    join $ net $ realToFrac t
+    t <- get elapsedTime
+    t0 <- readIORef tr
+    let d = (fromIntegral $ t-t0) / 1000
+    writeIORef tr t
+    join $ net d 
 
 --initWindow :: Window -> IO ()
 initWindow keys mousePositionSink win = do
@@ -117,13 +128,13 @@ scene :: PrimitiveStream Triangle (Vec3 (Vertex Float))
       -> Signal (Int, Int)
       -> SignalGen Float (Signal (IO (FrameBuffer RGBFormat () ())))
 -}
-scene bsp mousePosition fblrPress buttonPress wh = do
+scene bsp surfaces mousePosition fblrPress buttonPress wh = do
     time <- stateful 0 (+)
     last2 <- transfer ((0,0),(0,0)) (\_ n (_,b) -> (b,n)) mousePosition
     let mouseMove = (\((ox,oy),(nx,ny)) -> (nx-ox,ny-oy)) <$> last2
     --let mouseMove = mousePosition
     cam <- userCamera (V.Vec3 (-4) 0 0) mouseMove fblrPress
-    return $ drawGLScene bsp <$> wh <*> cam <*> time <*> buttonPress
+    return $ drawGLScene bsp surfaces <$> wh <*> cam <*> time <*> buttonPress
 
 convMat :: V.Mat4 -> Vec.Mat44 (Vertex Float)
 convMat m = toGPU $ (v a):.(v b):.(v c):.(v d):.()
@@ -139,17 +150,13 @@ drawGLScene :: PrimitiveStream Triangle (Vec3 (Vertex Float))
             -> Bool
             -> IO (FrameBuffer RGBFormat () ())
 -}
-drawGLScene bsp (w,h) (cam,dir,up,_) time buttonPress = do
-    let cm = V.fromProjective (lookat cam (cam + dir) up)
+drawGLScene bsp surfaces (w,h) (cam,dir,up,_) time buttonPress = do
+    let cm = (V.fromProjective (lookat cam (cam + dir) up)) V..*. (V.fromProjective $ V.scaling (V.Vec3 0.01 0.01 0.01))
         pm = U.perspective 0.1 500 90 (fromIntegral w / fromIntegral h)
-
-        lpos = V.Vec3 0.1 2 0.1
-        lat  = (V.Vec3 0 (-100) 0)
-        lup  = V.Vec3 0 1 0
-        lmat = V.fromProjective (lookat lpos lat lup)
-        pmat = U.perspective 0.4 5 90 (fromIntegral w / fromIntegral h)
-    --print "render frame"
-    return $ renderSurfaces (toGPU time) (convMat (cm V..*. pm)) bsp
+        culledSurfaces = cullSurfaces bsp cam frust surfaces
+        frust = frustum 90 (fromIntegral w / fromIntegral h) 0.1 500 cam (cam+dir) up
+    print ("cull nums",VC.length surfaces,VC.length culledSurfaces)
+    return $ renderSurfaces time (toGPU time) (convMat (cm V..*. pm)) culledSurfaces
 
 -- Key -> KeyState -> Modifiers -> Position -> IO ()
 keyboard keys mousePos key keyState mods (Position x y) = do

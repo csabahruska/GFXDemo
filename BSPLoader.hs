@@ -149,7 +149,7 @@ data Surface
     , srLightmapVec1   :: Vec3
     , srLightmapVec2   :: Vec3
     , srLightmapVec3   :: Vec3
-    , srPatchSize      :: Vec2
+    , srPatchSize      :: (Int,Int)
     }
 
 data Lightmap
@@ -269,7 +269,7 @@ getDrawVertices = getItems  44 $ DrawVertex <$> getVec3 <*> getVec2 <*> getVec2 
 getDrawIndices  = getItems   4   getInt
 getFogs         = getItems  72 $ Fog        <$> getString 64 <*> getInt <*> getInt
 getSurfaces     = getItems 104 $ Surface    <$> getInt <*> getInt <*> getSurfaceType <*> getInt <*> getInt <*> getInt <*> getInt <*> getInt
-                                            <*> getVec2i <*> getVec2i <*> getVec3 <*> getVec3 <*> getVec3 <*> getVec3 <*> getVec2i
+                                            <*> getVec2i <*> getVec2i <*> getVec3 <*> getVec3 <*> getVec3 <*> getVec3 <*> getInt2
 getLightmaps    = getItems (128*128*3) (Lightmap <$> (getByteString $ 128*128*3))
 
 getLightGrid = getItems 8 $ do

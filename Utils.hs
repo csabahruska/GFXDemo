@@ -83,7 +83,7 @@ userCamera p mposs keyss = transfer2 (p,zero,zero,(0,0)) calcCam mposs keyss
       where
         f0 c n = if c then (&+ n) else id
         p'  = foldr1 (.) [f0 ka (v &* (-t)),f0 kw (d &* t),f0 ks (d &* (-t)),f0 kd (v &* t)] p0
-        k   = if turbo then 10 else 3
+        k   = if turbo then 100 else 30
         t   = k * realToFrac dt
         mx' = dmx + mx
         my' = dmy + my

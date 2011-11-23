@@ -12,7 +12,7 @@ import GPipeFPS
 import GPipeUtils
 import Load
 import qualified Data.ByteString.Char8 as B
-import qualified Graphics.GPipe as GP
+import Graphics.GPipe hiding ((<*))
 
 -- utility parsers
 shaderName :: Parser ByteString
@@ -56,7 +56,7 @@ shaders :: Parser [(ByteString,(Int,Renderer))]
 shaders = skip *> many shader <* skip
 
 shader :: Parser (ByteString,(Int,Renderer))
-shader = (\n _ l _ -> (n,(0,stagesRenderer $ reverse $ caRenderers $ foldl' (\s f -> f s) defaultCommonAttrs l))) <$> word <*> kw "{" <*> many shaderAttrs <*> kw "}"
+shader = (\n _ l _ -> (n,stagesRenderer $ foldl' (\s f -> f s) defaultCommonAttrs l)) <$> word <*> kw "{" <*> many shaderAttrs <*> kw "}"
 
 shaderAttrs :: Parser (CommonAttrs -> CommonAttrs)
 shaderAttrs = general <|> q3map <|> editor <|> stage
@@ -189,24 +189,42 @@ answer: yes, but the backend should optimize it. Now we should build multipass r
         - lighting
 -}
 
-mapP = kw "map" *> (
-    pass <$> kw "$lightmap" <|> 
-    (\_ ca -> ca {saTextureSrc = whiteImage}) <$> kw "$whiteimage" <|> 
-    (\v ca -> ca {saTextureSrc = loadQ3Texture $ B.unpack v}) <$> word
+mapP = (\_ v sa -> sa {saTexture = v}) <$> kw "map" <*> (
+    val ST_Lightmap "$lightmap" <|> 
+    val ST_WhiteImage "$whiteimage" <|> 
+    ST_Map <$> word
     )
 
-clampMap = (\v ca -> ca {saTextureSrc = loadQ3Texture $ B.unpack v}) <$> (kw "clampmap" *> word)
+clampMap = (\v sa -> sa {saTexture = ST_ClampMap v}) <$> (kw "clampmap" *> word)
 
-animMap = (\_ _ v ca -> ca {saTextureSrc = loadQ3Texture $ B.unpack $ head v}) <$> kw "animmap" <*> float <*> (B.words <$> takeTill fun)--many1 (skipWhile fun *> takeTill fun) -- FIXME: comment is not supported!
+animMap = (\_ f v sa -> sa {saTexture = ST_AnimMap f v}) <$> kw "animmap" <*> float <*> (B.words <$> takeTill fun)--many1 (skipWhile fun *> takeTill fun) -- FIXME: comment is not supported!
   where
     fun c = c == '\n' || c == '\r'
--- Blend (BlendEquation, BlendEquation) ((BlendingFactor, BlendingFactor), (BlendingFactor, BlendingFactor)) (Color RGBAFormat Float)
-blendFuncFunc = pass <$> choice [kw "add", kw "filter", kw "blend"]
-srcBlend      = pass <$> choice [kw "gl_one", kw "gl_zero", kw "gl_dst_color", kw "gl_one_minus_dst_color", kw "gl_src_alpha", kw "gl_one_minus_src_alpha",
-                        kw "gl_dst_alpha", kw "gl_one_minus_dst_alpha", kw "gl_src_alpha_saturate"]
-dstBlend      = pass <$> choice [kw "gl_one", kw "gl_zero", kw "gl_src_alpha", kw "gl_one_minus_src_alpha", kw "gl_dst_alpha", kw "gl_one_minus_dst_alpha", 
-                        kw "gl_src_color", kw "gl_one_minus_src_color"]
-blendFunc     = pass <$> (kw "blendfunc" <* choice [blendFuncFunc, srcBlend <* dstBlend])
+
+blendFuncFunc = val (One,One) "add"
+            <|> val (DstColor,Zero) "filter"
+            <|> val (SrcAlpha,OneMinusSrcAlpha) "blend"
+
+srcBlend = val One "gl_one"
+       <|> val Zero "gl_zero"
+       <|> val DstColor "gl_dst_color"
+       <|> val OneMinusDstColor "gl_one_minus_dst_color"
+       <|> val SrcAlpha "gl_src_alpha"
+       <|> val OneMinusSrcAlpha "gl_one_minus_src_alpha"
+       <|> val DstAlpha "gl_dst_alpha"
+       <|> val OneMinusDstAlpha "gl_one_minus_dst_alpha"
+       <|> val SrcAlphaSaturate "gl_src_alpha_saturate"
+
+dstBlend = val One "gl_one"
+       <|> val Zero "gl_zero"
+       <|> val SrcAlpha "gl_src_alpha"
+       <|> val OneMinusSrcAlpha "gl_one_minus_src_alpha"
+       <|> val DstAlpha "gl_dst_alpha"
+       <|> val OneMinusDstAlpha "gl_one_minus_dst_alpha"
+       <|> val SrcColor "gl_src_color"
+       <|> val OneMinusSrcColor "gl_one_minus_src_color"
+
+blendFunc = (\_ b sa -> sa {saBlend = Just b}) <$> kw "blendfunc" <*> choice [blendFuncFunc, (,) <$> srcBlend <*> dstBlend]
 
 rgbGen = pass <$> (kw "rgbgen" <* (
     kw "wave" <* waveFun <* float <* float <* float <* float
@@ -224,24 +242,29 @@ alphaGen = pass <$> (kw "alphagen" <* (
     <|> kw "oneminusvertex"
     ))
 
-tcGen = pass <$> (kw "tcgen" <* (
-    kw "base" <|> kw "lightmap" <|> kw "environment" <|>
-    (kw "vector" <* kw "(" <* float <* float <* float <* kw ")" <* kw "(" <* float <* float <* float <* kw ")")
-    ))
+tcGen = (\_ v sa -> sa {saTCGen = v}) <$> kw "tcgen" <*> (
+    val (\(_,uv,_,_) -> uv) "base"
+    <|> val (\(_,_,uv,_) -> uv) "lightmap"
+    <|> val (\(_,uv,_,_) -> uv) "environment" -- TODO
+    <|> ((\_ u v -> (\(p,_,_,_) -> (dot p u):.(dot p v):.())) <$> kw "vector" <*> v3 <*> v3))
+  where
+    v3 = (\_ x y z _ -> toGPU $ x:.y:.z:.()) <$> kw "(" <*> float <*> float <*> float <*> kw ")"
 
-tcMod = pass <$> (kw "tcmod" <* (
-    kw "entitytranslate" <|>
-    kw "environment" <|>
-    kw "rotate" <* float <* skipRest <|>
-    kw "scale" <* float <* float <* skipRest <|>
-    kw "scroll" <* float <* float <* skipRest <|>
-    kw "stretch" <* waveFun <* float <* float <* float <* float <|>
-    kw "transform" <* float <* float <* float <* float <* float <* float <|>
-    kw "turb" <* option () (kw "sin") <* float <* float <* float <* float
-    ))
+tcMod = (\_ v sa -> sa {saTCMod = v:saTCMod sa}) <$> kw "tcmod" <*> (
+    val idfun "entitytranslate" <|>
+    val idfun "environment" <|>
+    val idfun "rotate" <* float <* skipRest <|>
+    (\_ su sv t (u:.v:.()) -> fract' (u+t*toGPU su):.fract' (v+t*toGPU sv):.()) <$> kw "scale" <*> float <*> float <* skipRest <|>
+    (\_ su sv _ (u:.v:.()) -> fract' (u*toGPU su):.fract' (v*toGPU sv):.()) <$> kw "scroll" <*> float <*> float <* skipRest <|>
+    val idfun "stretch" <* waveFun <* float <* float <* float <* float <|>
+    val idfun "transform" <* float <* float <* float <* float <* float <* float <|>
+    val idfun "turb" <* option () (kw "sin") <* float <* float <* float <* float
+    )
+  where
+    idfun = \_ uv -> uv
 
-depthFunc = (\_ v ca -> ca {saDepthFunc = v}) <$> kw "depthfunc" <*> (val GP.Lequal "lequal" <|> val GP.Equal "equal")
-depthWrite = (\_ ca -> ca {saDepthWrite = True}) <$> kw "depthwrite"
+depthFunc = (\_ v sa -> sa {saDepthFunc = v}) <$> kw "depthfunc" <*> (val Lequal "lequal" <|> val Equal "equal")
+depthWrite = (\_ sa -> sa {saDepthWrite = True}) <$> kw "depthwrite"
 detail = pass <$> kw "detail"
 alphaFunc = pass <$> kw "alphafunc" <* (kw "gt0" <|> kw "lt128" <|> kw "ge128")
 alphaMap = pass <$> kw "alphamap" <* skipRest
