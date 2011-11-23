@@ -10,7 +10,6 @@ import Data.Char (toLower)
 import Data.List (foldl')
 import GPipeFPS
 import GPipeUtils
-import Load
 import qualified Data.ByteString.Char8 as B
 import Graphics.GPipe hiding ((<*))
 
