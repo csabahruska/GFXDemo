@@ -193,7 +193,7 @@ compileBSP shaderMap bsp = V.map convertSurface $ blSurfaces bsp
             _              -> toGPUStream TriangleList []
         v = V.toList $ V.take (srNumVertices sf) $ V.drop (srFirstVertex sf) vertices
         i = V.toList $ V.take (srNumIndices sf) $ V.drop (srFirstIndex sf) indices
-        grid (w,h) = go 0 0 True
+        grid (w,h) = unsafePerformIO $ print ("patch",w*h,srNumVertices sf) >> return (even 0 0)
           where
             {- 
                hint: http://dan.lecocq.us/wordpress/wp-content/uploads/2009/12/strip.png
@@ -201,19 +201,19 @@ compileBSP shaderMap bsp = V.map convertSurface $ blSurfaces bsp
                |   |
                c - d
             -}
-            go x y True
-                | x >= w    = c:go (w-2) (y+1) False
+            even x y
+                | x >= w-1  = c:odd (w-2) (y+1)
                 | y >= h    = []
-                | otherwise = a:c:b:d:go (x+1) y True
+                | otherwise = a:c:b:d:even (x+1) y
               where
                 a = y*w+x
                 b = y*w+x+1
                 c = (y+1)*w+x
                 d = (y+1)*w+x+1
-            go x y False
-                | x < 0     = d:go 0 (y+1) True
+            odd x y
+                | x < 0     = d:even 0 (y+1)
                 | y >= h    = []
-                | otherwise = b:d:a:c:go (x-1) y False
+                | otherwise = b:d:a:c:odd (x-1) y
               where
                 a = y*w+x
                 b = y*w+x+1

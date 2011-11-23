@@ -152,9 +152,11 @@ drawGLScene :: PrimitiveStream Triangle (Vec3 (Vertex Float))
 -}
 drawGLScene bsp surfaces (w,h) (cam,dir,up,_) time buttonPress = do
     let cm = (V.fromProjective (lookat cam (cam + dir) up)) V..*. (V.fromProjective $ V.scaling (V.Vec3 0.01 0.01 0.01))
-        pm = U.perspective 0.1 500 90 (fromIntegral w / fromIntegral h)
+        pm = U.perspective 0.1 500 fovRad (fromIntegral w / fromIntegral h)
         culledSurfaces = cullSurfaces bsp cam frust surfaces
-        frust = frustum 90 (fromIntegral w / fromIntegral h) 0.1 500 cam (cam+dir) up
+        frust = frustum fovDeg (fromIntegral w / fromIntegral h) 0.1 500 cam (cam+dir) up
+        fovDeg = 90
+        fovRad = fovDeg * pi / 180
     print ("cull nums",VC.length surfaces,VC.length culledSurfaces)
     return $ renderSurfaces time (toGPU time) (convMat (cm V..*. pm)) culledSurfaces
 
