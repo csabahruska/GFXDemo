@@ -1,23 +1,21 @@
 {-# LANGUAGE OverloadedStrings #-}
 module BSPLoader where
 
-import Data.Word
-import Data.Int
-import Data.Bits
-import Control.Monad
 import Control.Applicative
+import Control.Monad
+import Data.Bits
+import Data.Int
+import Data.Word
 
-import Data.Vector (Vector)
-import qualified Data.Vector as V
-import qualified Data.ByteString as SB8
-import qualified Data.ByteString.Char8 as SB
-import qualified Data.ByteString.Lazy as LB
 import Data.Binary as B
 import Data.Binary.Get as B
 import Data.Binary.IEEE754
 import Data.Vect hiding (Vector)
-
---import Utils
+import Data.Vector (Vector)
+import qualified Data.ByteString as SB8
+import qualified Data.ByteString.Char8 as SB
+import qualified Data.ByteString.Lazy as LB
+import qualified Data.Vector as V
 
 {-
 Information: http://graphics.stanford.edu/~kekoa/q3/

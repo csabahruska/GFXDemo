@@ -49,6 +49,15 @@ loadShaders = do
             Done rem r -> error $ show (n,"failed", map fst r)
     return $ T.fromList $ concat sl
 
+parseEntities :: SB.ByteString -> [T.Trie SB.ByteString]
+parseEntities s = case parse entities s of
+    Done "" r -> r
+    Fail _ c _   -> error $ show ("failed",c)
+    Partial f -> case f "" of
+        Done "" r -> r
+        _   -> error $ show ("partial failed")
+    Done rem r -> error $ show ("failed", r)
+
 main :: IO ()
 main = do
     getArgsAndInitialize
@@ -59,22 +68,35 @@ main = do
     (buttonPress,buttonPressSink) <- external False
     (fblrPress,fblrPressSink) <- external (False,False,False,False,False)
 
+    --bsp <- B.loadBSP "fps/maps/q3gwdm1.bsp"
     --bsp <- B.loadBSP "fps/maps/ct3ctf2.bsp"
     --bsp <- B.loadBSP "fps/maps/q3ctf2.bsp"
+    bsp <- B.loadBSP "fps/maps/q3dm1.bsp"
+    --bsp <- B.loadBSP "fps/maps/q3dm6.bsp"
     --bsp <- B.loadBSP "fps/maps/q3dm3.bsp"
     --bsp <- B.loadBSP "fps/maps/q3dm16.bsp"
     --bsp <- B.loadBSP "fps/maps/q3dm17.bsp"
     --bsp <- B.loadBSP "fps/maps/q3dm18.bsp"
     --bsp <- B.loadBSP "fps/maps/q3tourney6.bsp"
-    bsp <- B.loadBSP "fps/maps/q3tourney3.bsp"
+    --bsp <- B.loadBSP "fps/maps/q3tourney3.bsp"
     --bsp <- B.loadBSP "fps/maps/SGDTT3.bsp"
     --bsp <- B.loadBSP "fps/maps/q3tourney1.bsp"
     --bsp <- B.loadBSP "fps/maps/erta1.bsp"
+
+    -- extract spawn points
+    let ents = parseEntities $ B.blEntities bsp
+        spawn e = case T.lookup "classname" e of
+            Just "info_player_deathmatch" -> True
+            _ -> False
+        Just sp0 = T.lookup "origin" $ head $ filter spawn ents
+        [x0,y0,z0] = map read $ words $ SB.unpack sp0
+        p0 = V.Vec3 x0 z0 (-y0)
+
     shaders <- loadShaders
     let gr b = compileBSP shaders b
         g = gr bsp
     print $ VC.length g
-    net <- start $ scene bsp g mousePosition fblrPress buttonPress winSize
+    net <- start $ scene p0 bsp g mousePosition fblrPress buttonPress winSize
     keys <- newIORef $ Map.empty
     tr <- newIORef =<< get elapsedTime
 
@@ -128,12 +150,12 @@ scene :: PrimitiveStream Triangle (Vec3 (Vertex Float))
       -> Signal (Int, Int)
       -> SignalGen Float (Signal (IO (FrameBuffer RGBFormat () ())))
 -}
-scene bsp surfaces mousePosition fblrPress buttonPress wh = do
+scene p0 bsp surfaces mousePosition fblrPress buttonPress wh = do
     time <- stateful 0 (+)
     last2 <- transfer ((0,0),(0,0)) (\_ n (_,b) -> (b,n)) mousePosition
     let mouseMove = (\((ox,oy),(nx,ny)) -> (nx-ox,ny-oy)) <$> last2
     --let mouseMove = mousePosition
-    cam <- userCamera (V.Vec3 (-4) 0 0) mouseMove fblrPress
+    cam <- userCamera p0 mouseMove fblrPress
     return $ drawGLScene bsp surfaces <$> wh <*> cam <*> time <*> buttonPress
 
 convMat :: V.Mat4 -> Vec.Mat44 (Vertex Float)
@@ -151,12 +173,15 @@ drawGLScene :: PrimitiveStream Triangle (Vec3 (Vertex Float))
             -> IO (FrameBuffer RGBFormat () ())
 -}
 drawGLScene bsp surfaces (w,h) (cam,dir,up,_) time buttonPress = do
-    let cm = (V.fromProjective (lookat cam (cam + dir) up)) V..*. (V.fromProjective $ V.scaling (V.Vec3 0.01 0.01 0.01))
-        pm = U.perspective 0.1 500 fovRad (fromIntegral w / fromIntegral h)
-        culledSurfaces = cullSurfaces bsp cam frust surfaces
-        frust = frustum fovDeg (fromIntegral w / fromIntegral h) 0.1 500 cam (cam+dir) up
+    let scal = 0.01
+        near = 0.1
+        far  = 500
         fovDeg = 90
         fovRad = fovDeg * pi / 180
+        cm = (V.fromProjective (lookat cam (cam + dir) up)) V..*. (V.fromProjective $ V.scaling (V.Vec3 scal scal scal))
+        pm = U.perspective near far fovRad (fromIntegral w / fromIntegral h)
+        culledSurfaces = cullSurfaces bsp cam frust surfaces
+        frust = frustum fovDeg (fromIntegral w / fromIntegral h) (near/scal) (far/scal) cam (cam+dir) up
     print ("cull nums",VC.length surfaces,VC.length culledSurfaces)
     return $ renderSurfaces time (toGPU time) (convMat (cm V..*. pm)) culledSurfaces
 

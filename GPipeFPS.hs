@@ -23,22 +23,26 @@ type FB = FrameBuffer RGBAFormat DepthFormat ()
 
 -- time -> worldProjection -> inFrameBuffer -> resultFrameBuffer
 type SurfaceRenderer = Float -> Vertex Float -> Vec.Mat44 (Vertex Float) -> FB -> FB
-type Renderer = Mesh -> SurfaceRenderer
+type Renderer = Texture2D RGBAFormat -> Mesh -> SurfaceRenderer
 
 type RGBFun    = Vertex Float -> VertexData -> Vec.Vec3 (Vertex Float)
 type AlphaFun  = Vertex Float -> VertexData -> Vertex Float
 type TCFun     = Vertex Float -> VertexData -> Vec.Vec2 (Vertex Float)
-type TexFun    = Float -> Texture2D RGBAFormat
+type TexFun    = Texture2D RGBAFormat -> Float -> Texture2D RGBAFormat
 type SampleFun = Texture2D RGBAFormat -> Vec.Vec2 (Fragment Float) -> Color RGBAFormat (Fragment Float)
 
 type VertexDeformer = Vertex Float -> Vec.Vec3 (Vertex Float) -> Vec.Vec3 (Vertex Float)
 
-data LightmapSource
-    = LS_2D
-    | LS_ByVertex
-    | LS_WhiteImage
-    | LS_None
-    | LS_Texture (Texture2D RGBAFormat)
+identityLight :: Float
+identityLight = 1
+
+data Entity
+    = Entity
+    { eAmbientLight     :: Vec.Vec4 (Vertex Float)
+    , eDirectedLight    :: Vec.Vec4 (Vertex Float)
+    , eLightDir         :: Vec.Vec3 (Vertex Float)
+    , eShaderRGBA       :: Vec.Vec4 (Vertex Float)
+    }
 
 data CommonAttrs
     = CommonAttrs
@@ -80,8 +84,8 @@ data StageTexture
 data StageAttrs
     = StageAttrs
     { saBlend       :: Maybe (BlendingFactor,BlendingFactor)
-    , saRGBGen      :: () -- texture, vertex color, constant
-    , saAlphaGen    :: () -- texture, vertex color, constant
+    , saRGBGen      :: RGBFun
+    , saAlphaGen    :: AlphaFun
     , saTCGen       :: VertexData -> Vec.Vec2 (Vertex Float)
     , saTCMod       :: [Vertex Float -> Vec.Vec2 (Vertex Float) -> Vec.Vec2 (Vertex Float)]
     , saTexture     :: StageTexture
@@ -93,8 +97,8 @@ data StageAttrs
 defaultStageAttrs :: StageAttrs
 defaultStageAttrs = StageAttrs
     { saBlend       = Nothing
-    , saRGBGen      = ()
-    , saAlphaGen    = ()
+    , saRGBGen      = \_ _ -> 1:.1:.1:.()
+    , saAlphaGen    = \_ _ -> 1
     , saTCGen       = \(_,uv,_,_) -> uv
     , saTCMod       = []
     , saTexture     = ST_WhiteImage
@@ -105,41 +109,30 @@ defaultStageAttrs = StageAttrs
 
 addRenderer ca sa = ca {caRenderers = r:caRenderers ca}
   where
-    r = stageRenderer (saDepthFunc sa) depthWrite blend vertexFun rgbFun alphaFun tcFun texFun sampleFun whiteImage
+    r = stageRenderer (saDepthFunc sa) depthWrite blend vertexFun (saRGBGen sa) (saAlphaGen sa) tcFun texFun sampleFun
+    mipmap = not $ caNoMipMaps ca
     vertexFun t v = v
-    rgbFun t (_,_,_,r:.g:.b:._:.()) = r:.g:.b:.()
-    alphaFun t (_,_,_,_:._:._:.a:.()) = a
     tcFun t vd = foldl' (\uv f -> f t uv) (saTCGen sa vd) (reverse $ saTCMod sa)
     depthWrite = if NoBlending == blend then True else True --saDepthWrite sa
     blend = case saBlend sa of
         Nothing -> NoBlending
         Just b  -> Blend (FuncAdd,FuncAdd) (b,(SrcAlpha,OneMinusSrcAlpha)) (RGBA (0:.0:.0:.()) 1)
     texFun = case saTexture sa of
-        ST_Map t        -> \_ -> loadQ3Texture $ SB.unpack t
-        ST_ClampMap t   -> \_ -> loadQ3Texture $ SB.unpack t
-        ST_AnimMap f l  -> \t -> let
-            txl = map (loadQ3Texture . SB.unpack) l
+        ST_Map t        -> \_ _ -> loadQ3Texture mipmap $ SB.unpack t
+        ST_ClampMap t   -> \_ _ -> loadQ3Texture mipmap $ SB.unpack t
+        ST_AnimMap f l  -> \_ t -> let
+            txl = map (loadQ3Texture mipmap . SB.unpack) l
             i = floor $ (fromIntegral $ length l) * fract' (t*f)
             in txl !! i
-        ST_Lightmap     -> \_ -> whiteImage -- TODO
-        ST_WhiteImage   -> \_ -> whiteImage
+        ST_Lightmap     -> \lm _ -> lm
+        ST_WhiteImage   -> \_ _ -> whiteImage
     sampleFun = case saTexture sa of
         ST_ClampMap _   -> \t uv -> sample (Sampler Linear Clamp) t uv
         ST_WhiteImage   -> \_ _ -> RGBA (1:.1:.1:.()) 1
         _               -> \t uv -> sample (Sampler Linear Wrap) t uv
 
-mkRenderer tx = r
-  where
-    r = stageRenderer Lequal True NoBlending vertexFun rgbFun alphaFun tcFun texFun sampleFun whiteImage
-    vertexFun t v = v
-    rgbFun t (_,_,_,r:.g:.b:._:.()) = r:.g:.b:.()
-    alphaFun t (_,_,_,_:._:._:.a:.()) = a
-    tcFun t (_,uv,_,_) = uv
-    sampleFun t uv = sample (Sampler Linear Wrap) t uv
-    texFun t = tx
-
-stageRenderer :: ComparisonFunction -> Bool -> Blending -> VertexDeformer -> RGBFun -> AlphaFun -> TCFun -> TexFun -> SampleFun -> Texture2D RGBAFormat -> Renderer
-stageRenderer depthFun depthWrite blending vertexFun rgbFun alphaFun tcFun texFun sampleFun tex obj time' time cWorldProjection fb =
+stageRenderer :: ComparisonFunction -> Bool -> Blending -> VertexDeformer -> RGBFun -> AlphaFun -> TCFun -> TexFun -> SampleFun -> Renderer
+stageRenderer depthFun depthWrite blending vertexFun rgbFun alphaFun tcFun texFun sampleFun lmTex obj time' time cWorldProjection fb =
     paintColorRastDepth depthFun depthWrite blending (RGBA (Vec.vec True) True) (rast obj) fb
   where
     rast obj = fmap frag $ rasterizeBack $ fmap vert obj
@@ -148,10 +141,10 @@ stageRenderer depthFun depthWrite blending vertexFun rgbFun alphaFun tcFun texFu
         v4 = Vec.snoc (vertexFun time v3) 1
     frag (rgb,a,uv) = RGBA (rgb * rgb') (a * a')
       where
-        RGBA rgb' a' = sampleFun (texFun time') uv
+        RGBA rgb' a' = sampleFun (texFun lmTex time') uv
 
 stagesRenderer :: CommonAttrs -> (Int,Renderer)
-stagesRenderer ca = (caSort ca, \obj time' time cWorldProjection fb -> foldl' (\f r -> r obj time' time cWorldProjection f) fb $ reverse $ caRenderers ca)
+stagesRenderer ca = (caSort ca, \lm obj time' time cWorldProjection fb -> foldl' (\f r -> r lm obj time' time cWorldProjection f) fb $ reverse $ caRenderers ca)
 
 renderSurfaces :: Float -> Vertex Float -> Vec.Mat44 (Vertex Float) -> V.Vector (Int,SurfaceRenderer) -> FB
 renderSurfaces time' time worldProjection faces = V.foldl' (foldl' (\fb fun -> fun time' time worldProjection fb)) cleanFB $ sorted
@@ -166,72 +159,49 @@ renderSurfaces time' time worldProjection faces = V.foldl' (foldl' (\fb fun -> f
 #define LIGHTMAP_WHITEIMAGE	-2
 #define	LIGHTMAP_NONE		-1
 -}
-{-
-additional parameters to renderer:
-    - lightmap index
-    - lightmap vector
-    - entity color
--}
+imageRenderer lmidx txName = stagesRenderer $ if lmidx < 0 then ca else addRenderer ca saLM
+  where
+    ca = addRenderer defaultCommonAttrs sa
+    sa = defaultStageAttrs
+        { saTexture = ST_Map txName
+--        , saBlend = Just (SrcColor,Zero)
+--        , saBlend = Just (SrcColor,DstColor)
+        }
+    saLM = defaultStageAttrs
+        { saTexture = ST_Lightmap
+        , saTCGen = \(_,_,uv,_) -> uv
+--        , saBlend = Just (SrcColor,One)
+        , saBlend = Just (SrcColor,DstColor)
+        }
 
 compileBSP :: Trie (Int,Renderer) -> BSPLevel -> V.Vector (Int,SurfaceRenderer)
 compileBSP shaderMap bsp = V.map convertSurface $ blSurfaces bsp
   where
-    lookup k = case T.lookup (shName k) shaderMap of
-        Nothing -> (3,mkRenderer $ loadQ3Texture $ SB.unpack $ shName k)
-        Just v  -> v
-    shaders = V.map lookup $ blShaders bsp
-    --lightmaps = V.map (textureFromByteString 3 128 128 . lmMap) $ blLightmaps bsp
-
-    convertSurface sf = (shidx,sh geom)
+    lightmaps = V.map (textureFromByteString True 3 128 128 . lmMap) $ blLightmaps bsp
+    shaders = V.map (\s -> T.lookup (shName s) shaderMap) $ blShaders bsp
+    convertSurface sf = (shidx,sh (lightmap $ srLightmapNum sf) geom)
       where
-        (shidx,sh) = shaders V.! srShaderNum sf
+        shaderName = shName $ (blShaders bsp) V.! (srShaderNum sf)
+        (shidx,sh) = case shaders V.! srShaderNum sf of
+            Just s  -> s
+            Nothing -> imageRenderer (srLightmapNum sf) shaderName
         geom = case srSurfaceType sf of
             Planar       -> toIndexedGPUStream TriangleList v i
             TriangleSoup -> toIndexedGPUStream TriangleList v i
-            --Patch        -> toIndexedGPUStream TriangleStrip v $ grid $ srPatchSize sf
-            --Flare        -> toGPUStream Point v
-            _              -> toGPUStream TriangleList []
+            Patch        -> toGPUStream TriangleList $ concatMap (pointToCube (0:.1:.0:.1:.())) v
+            Flare        -> toGPUStream TriangleList $ concatMap (pointToCube (1:.0:.0:.1:.())) v
+            --_            -> toGPUStream TriangleList $ concatMap (pointToCube (1:.1:.0:.1:.())) v
         v = V.toList $ V.take (srNumVertices sf) $ V.drop (srFirstVertex sf) vertices
         i = V.toList $ V.take (srNumIndices sf) $ V.drop (srFirstIndex sf) indices
-        grid (w,h) = unsafePerformIO $ print ("patch",w*h,srNumVertices sf) >> return (even 0 0)
-          where
-            {- 
-               hint: http://dan.lecocq.us/wordpress/wp-content/uploads/2009/12/strip.png
-               a - b
-               |   |
-               c - d
-            -}
-            even x y
-                | x >= w-1  = c:odd (w-2) (y+1)
-                | y >= h    = []
-                | otherwise = a:c:b:d:even (x+1) y
-              where
-                a = y*w+x
-                b = y*w+x+1
-                c = (y+1)*w+x
-                d = (y+1)*w+x+1
-            odd x y
-                | x < 0     = d:even 0 (y+1)
-                | y >= h    = []
-                | otherwise = b:d:a:c:odd (x-1) y
-              where
-                a = y*w+x
-                b = y*w+x+1
-                c = (y+1)*w+x
-                d = (y+1)*w+x+1
-
-        --lm = if 0 <= lmidx && lmidx < V.length lightmaps then Just $ lightmaps V.! lmidx else Nothing
-        --lmidx = srLightmapNum sf
+        lightmap lidx | 0 <= lidx && lidx < V.length lightmaps = lightmaps V.! lidx
+                      | otherwise = whiteImage
 
     vertices = V.map convertVertex $ blDrawVertices bsp
     indices  = blDrawIndices bsp
     convertVertex (DrawVertex p dt lt n c) = (v3 p,v2 dt,v2 lt,v4 c)
     v2 (Vect.Vec2 i j) = i:.j:.()
-    v3 (Vect.Vec3 i j k) = (s i):.(s j):.(s k):.()
-    v3' (Vect.Vec3 i j k) = i:.j:.k:.()
+    v3 (Vect.Vec3 i j k) = i:.j:.k:.()
     v4 (Vect.Vec4 i j k l) = i:.j:.k:.l:.()
-    --s a = 0.01 * a
-    s a = a
 
 isClusterVisible :: BSPLevel -> Int -> Int -> Bool
 isClusterVisible bl a b
@@ -323,21 +293,3 @@ frustum angle ratio nearD farD p l u = Frustum ((pl ntr ntl ftl):.(pl nbl nbr fb
     ftr = fc + m fh y + m fw x
     fbl = fc - m fh y - m fw x
     fbr = fc - m fh y + m fw x
-
-{-
-drawBSPLevel ltl tl bl cp fr = do
-    let l   = findLeafIdx bl cp 0
-        lf  = (blLeafs bl) V.! l
-        clI = lfCluster lf
-        lfs = V.filter (\a -> (isClusterVisible bl clI $ lfCluster a) && cutLf a) $ blLeafs bl
-        cutLf a = boxInFrustum (lfMaxs a) (lfMins a) fr
-        fac = UV.replicate (V.length $ blFaces bl) False
-        fac' = V.foldr (visitLeaf bl) fac lfs
-        fidx = V.fromList $ UV.toList $ UV.elemIndices True fac'
-
-        faces = case ( l < 0 || l >= V.length (blLeafs bl)) of
-            True    -> V.toList $ blFaces bl -- render all faces, because we are out from bsp tree
-            False   -> V.toList $ V.map (\i -> (blFaces bl) V.! i) fidx
-
-    forM_ faces $ \f -> when (fcType f == 1 || fcType f == 3 ) $ drawFace ltl tl bl f
--}

@@ -191,3 +191,25 @@ quad2D = Mesh [("position", pos)] $ TrianglesI $ V.fromList [0,1,2,2,3,0]
     pos = A_Vec2 $ V.fromList [Vec2 n n, Vec2 n p, Vec2 p p, Vec2 p n]
     p = 1
     n = -1
+
+-- create a triangle strip index list for a 2D grid
+gridStrip :: Int -> Int -> [Int]
+gridStrip w h = even 0 0
+  where
+    {- 
+       hint: http://dan.lecocq.us/wordpress/wp-content/uploads/2009/12/strip.png
+       a - b
+       |   |
+       c - d
+    -}
+    square x y = (y*w+x,y*w+x+1,(y+1)*w+x,(y+1)*w+x+1)
+    even x y | x >= w-1  = c:odd (w-2) (y+1)
+             | y >= h    = []
+             | otherwise = a:c:b:d:even (x+1) y
+      where
+        (a,b,c,d) = square x y
+    odd x y | x < 0     = d:even 0 (y+1)
+            | y >= h    = []
+            | otherwise = b:d:a:c:odd (x-1) y
+      where
+        (a,b,c,d) = square x y
