@@ -26,7 +26,9 @@ import Graphics.UI.GLUT( Window,
                          Key(..),
                          KeyState(..),
                          SpecialKey(..),
-                         keyboardMouseCallback)
+                         keyboardMouseCallback,
+                         elapsedTime,
+                         get)
 
 main :: IO ()
 main = do
@@ -46,18 +48,19 @@ main = do
     net <- start $ scene (take 4 $ cycle [obj1,obj2,obj3,obj4]) mousePosition fblrPress buttonPress winSize
     keys <- newIORef $ Map.empty
 
+    tr <- newIORef =<< get elapsedTime
 
     putStrLn "creating window..."
     newWindow "Green Triangle" 
         (100:.100:.()) 
         (800:.600:.()) 
-        (renderFrame keys fblrPressSink buttonPressSink winSizeSink net)
+        (renderFrame tr keys fblrPressSink buttonPressSink winSizeSink net)
         (initWindow keys mousePositionSink)
     putStrLn "entering mainloop..."
     mainLoop
 
 --renderFrame :: Vec2 Int -> IO (FrameBuffer RGBFormat () ())
-renderFrame keys fblrPress buttonPress winSize net (w:.h:.()) = do
+renderFrame tr keys fblrPress buttonPress winSize net (w:.h:.()) = do
     km <- readIORef keys
     let keyIsPressed c = case Map.lookup c km of
             Nothing -> False
@@ -77,8 +80,11 @@ renderFrame keys fblrPress buttonPress winSize net (w:.h:.()) = do
     --tmp <- keyIsPressed KeySpace
     --print (x,y,tmp)
     --updateFPS s t
-    let t = 0.03
-    join $ net $ realToFrac t
+    t <- get elapsedTime
+    t0 <- readIORef tr
+    let d = (fromIntegral $ t-t0) / 1000
+    writeIORef tr t
+    join $ net d 
 
 --initWindow :: Window -> IO ()
 initWindow keys mousePositionSink win = do

@@ -1,6 +1,5 @@
-module GPipeFPS where
+module GPipeFPSRender where
 
-import BSPLoader
 import Control.Monad
 import Data.List
 import Data.Trie (Trie)
@@ -8,13 +7,18 @@ import Data.Vec.LinAlg.Transform3D
 import Data.Vec.Nat
 import Foreign
 import Graphics.GPipe
+import System.Directory
+import System.FilePath.Posix
 import qualified Data.ByteString.Char8 as SB
 import qualified Data.Trie as T
 import qualified Data.Vec as Vec
 import qualified Data.Vect as Vect
 import qualified Data.Vector as V
 import qualified Data.Vector.Mutable as MV
+import qualified Data.Vector.Storable as SV
 
+import BSPLoader
+import GPipeFPSMaterial
 import GPipeUtils
 
 type VertexData = (Vec.Vec3 (Vertex Float),{-Vec.Vec3 (Vertex Float), -}Vec.Vec2 (Vertex Float),Vec.Vec2 (Vertex Float),Vec.Vec4 (Vertex Float))
@@ -33,86 +37,109 @@ type SampleFun = Texture2D RGBAFormat -> Vec.Vec2 (Fragment Float) -> Color RGBA
 
 type VertexDeformer = Vertex Float -> Vec.Vec3 (Vertex Float) -> Vec.Vec3 (Vertex Float)
 
-identityLight :: Float
-identityLight = 1
 
-data Entity
-    = Entity
-    { eAmbientLight     :: Vec.Vec4 (Vertex Float)
-    , eDirectedLight    :: Vec.Vec4 (Vertex Float)
-    , eLightDir         :: Vec.Vec3 (Vertex Float)
-    , eShaderRGBA       :: Vec.Vec4 (Vertex Float)
-    }
+{-
+identity - RGBA 1 1 1 1
+identity_lighting (identity_light_byte = ilb) - RGBA ilb ilb ilb ilb
+lighting_diffuse - ??? check: RB_CalcDiffuseColor
+exact_vertex - vertex color
+const - constant color
+vertex (identity_light = il, vertex_color*il) - RGBA (r*il) (g*il) (b*il) a
+one_minus_vertex = (identity_light = il, vertex_color*il) - RGBA ((1-r)*il) ((1-g)*il) ((1-b)*il) a
+fog - fog color
+waveform (c = clamp 0 1 (wave_value * identity_light)) - RGBA c c c 1
+entity - entity's shaderRGB
+one_minus_entity - 1 - entity's shaderRGB
+-}
 
-data CommonAttrs
-    = CommonAttrs
-    { caSkyParms        :: () -- TODO
-    , caFogParms        :: () -- TODO
-    , caPortal          :: Bool
-    , caSort            :: Int -- default: 3 or 6 depends on blend function
-    , caEntityMergable  :: Bool
-    , caFogOnly         :: Bool
-    , caCull            :: () -- TODO, default = front
-    , caDeformVertexes  :: [VertexDeformer]
-    , caNoMipMaps       :: Bool
-    , caPolygonOffset   :: Maybe Float
-    , caRenderers       :: [Renderer]
-    }
-
-defaultCommonAttrs :: CommonAttrs
-defaultCommonAttrs = CommonAttrs
-    { caSkyParms        = ()
-    , caFogParms        = ()
-    , caPortal          = False
-    , caSort            = 3
-    , caEntityMergable  = False
-    , caFogOnly         = False
-    , caCull            = ()
-    , caDeformVertexes  = []
-    , caNoMipMaps       = False
-    , caPolygonOffset   = Nothing
-    , caRenderers       = []
-    }
-
-data StageTexture
-    = ST_Map        SB.ByteString
-    | ST_ClampMap   SB.ByteString
-    | ST_AnimMap    Float [SB.ByteString]
-    | ST_Lightmap
-    | ST_WhiteImage
-
-data StageAttrs
-    = StageAttrs
-    { saBlend       :: Maybe (BlendingFactor,BlendingFactor)
-    , saRGBGen      :: RGBFun
-    , saAlphaGen    :: AlphaFun
-    , saTCGen       :: VertexData -> Vec.Vec2 (Vertex Float)
-    , saTCMod       :: [Vertex Float -> Vec.Vec2 (Vertex Float) -> Vec.Vec2 (Vertex Float)]
-    , saTexture     :: StageTexture
-    , saDepthWrite  :: Bool
-    , saDepthFunc   :: ComparisonFunction
-    , saAlphaFunc   :: ()
-    }
-
-defaultStageAttrs :: StageAttrs
-defaultStageAttrs = StageAttrs
-    { saBlend       = Nothing
-    , saRGBGen      = \_ _ -> 1:.1:.1:.()
-    , saAlphaGen    = \_ _ -> 1
-    , saTCGen       = \(_,uv,_,_) -> uv
-    , saTCMod       = []
-    , saTexture     = ST_WhiteImage
-    , saDepthWrite  = False
-    , saDepthFunc   = Lequal
-    , saAlphaFunc   = ()
-    }
-
-addRenderer ca sa = ca {caRenderers = r:caRenderers ca}
+rgbExactVertex _ (_,_,_,r:.g:.b:._:.()) = r:.g:.b:.()
+rgbIdentity _ _ = toGPU (1:.1:.1:.())
+rgbIdentityLighting _ _ = toGPU (identityLight:.identityLight:.identityLight:.())
+rgbConst r g b _ _ = toGPU (r:.g:.b:.())
+rgbVertex _ (_,_,_,r:.g:.b:._:.()) = f r:.f g:.f b:.()
   where
-    r = stageRenderer (saDepthFunc sa) depthWrite blend vertexFun (saRGBGen sa) (saAlphaGen sa) tcFun texFun sampleFun
+    f a = toGPU identityLight * a
+rgbOneMinusVertex _ (_,_,_,r:.g:.b:._:.()) = f r:.f g:.f b:.()
+  where
+    f a = 1 - toGPU identityLight * a
+
+convRGBGen a = case a of
+--    RGB_Wave w          
+    RGB_Const r g b      -> rgbConst r g b
+    RGB_Identity         -> rgbIdentity
+    RGB_IdentityLighting -> rgbIdentityLighting
+--    RGB_Entity
+--    RGB_OneMinusEntity
+    RGB_ExactVertex      -> rgbExactVertex
+    RGB_Vertex           -> rgbVertex
+--    RGB_LightingDiffuse
+    RGB_OneMinusVertex   -> rgbOneMinusVertex
+    _   -> rgbIdentity
+
+{-
+identity - alpha = 1
+const - constant alpha
+wave - clamped waveform
+lightingspecular - ??? check: RB_CalcSpecularAlpha
+entity - entity's shaderRGBA's alpha
+oneminusentity - 1 - entity's shaderRGBA's alpha
+vertex - vertex alpha
+oneminusvertex - 1 - vertex alpha
+portal - ???
+-}
+alphaIdentity _ _ = 1
+alphaConst a _ _ = toGPU a
+alphaVertex _ (_,_,_,_:._:._:.a:.()) = a
+alphaOneMinusVertex _ (_,_,_,_:._:._:.a:.()) = 1 - a
+
+convAlphaGen a = case a of
+--    A_Wave w
+    A_Const a           -> alphaConst a
+--    A_Portal
+    A_Identity          -> alphaIdentity
+--    A_Entity
+--    A_OneMinusEntity
+    A_Vertex            -> alphaVertex
+--    A_LightingSpecular
+    A_OneMinusVertex    -> alphaOneMinusVertex
+    _ -> alphaIdentity
+
+tgBase (_,uv,_,_) = uv
+tgLightmap (_,_,uv,_) = uv
+tgVector u v (p,_,_,_) = (dot p (toGPU u)):.(dot p (toGPU v)):.()
+
+convTCGen a = case a of
+    TG_Base         -> tgBase
+    TG_Lightmap     -> tgLightmap
+--    TG_Environment -- TODO, check: RB_CalcEnvironmentTexCoords
+    TG_Vector u v   -> tgVector u v
+    _ -> tgBase
+
+tmScroll su sv t (u:.v:.()) = fract' (u+t*toGPU su):.fract' (v+t*toGPU sv):.()
+tmScale su sv _ (u:.v:.()) = (u*toGPU su):.(v*toGPU sv):.()
+
+convTCMod a = case a of
+    --TM_EntityTranslate
+    --TM_Rotate Float
+    TM_Scroll u v       -> tmScroll u v
+    TM_Scale u v        -> tmScale u v
+--    TM_Stretch Wave
+--    TM_Transform Float Float Float Float Float Float
+--    TM_Turb Float Float Float Float
+    _ -> \_ uv -> uv 
+
+shaderRenderer :: CommonAttrs -> (Int,Renderer)
+shaderRenderer ca = (caSort ca, \lm obj time' time cWorldProjection fb -> foldl' (\f r -> r lm obj time' time cWorldProjection f) fb $ map (stage ca) $ caStages ca)
+
+stage ca sa = stageRenderer (saDepthFunc sa) depthWrite blend vertexFun rgbGen alphaGen tcFun texFun sampleFun
+  where
+--    tcGen = undefined
+--    tcMod = undefined
+    alphaGen = convAlphaGen $ saAlphaGen sa
+    rgbGen = convRGBGen $ saRGBGen sa
     mipmap = not $ caNoMipMaps ca
     vertexFun t v = v
-    tcFun t vd = foldl' (\uv f -> f t uv) (saTCGen sa vd) (reverse $ saTCMod sa)
+    tcFun t vd = foldl' (\uv f -> f t uv) ((convTCGen $ saTCGen sa) vd) (map convTCMod $ saTCMod sa)
     depthWrite = if NoBlending == blend then True else True --saDepthWrite sa
     blend = case saBlend sa of
         Nothing -> NoBlending
@@ -143,25 +170,21 @@ stageRenderer depthFun depthWrite blending vertexFun rgbFun alphaFun tcFun texFu
       where
         RGBA rgb' a' = sampleFun (texFun lmTex time') uv
 
-stagesRenderer :: CommonAttrs -> (Int,Renderer)
-stagesRenderer ca = (caSort ca, \lm obj time' time cWorldProjection fb -> foldl' (\f r -> r lm obj time' time cWorldProjection f) fb $ reverse $ caRenderers ca)
-
-renderSurfaces :: Float -> Vertex Float -> Vec.Mat44 (Vertex Float) -> V.Vector (Int,SurfaceRenderer) -> FB
-renderSurfaces time' time worldProjection faces = V.foldl' (foldl' (\fb fun -> fun time' time worldProjection fb)) cleanFB $ sorted
+renderSurfaces :: Float -> Vertex Float -> Vec.Mat44 (Vertex Float) -> V.Vector (Int,(Int,SurfaceRenderer)) -> FB
+renderSurfaces time' time worldProjection faces = V.foldl' (foldl' (\fb (_,fun) -> fun time' time worldProjection fb)) cleanFB $ batch $ sorted
   where
     maxSort = 256
     cleanFB = newFrameBufferColorDepth (RGBA (0:.0:.0:.()) 1) 1000
     sorted  = V.accumulate (\l e -> e:l) (V.replicate maxSort []) faces
-
+    batch v = V.map (sortBy (\(a,_) (b,_) -> a `compare` b)) v
 {-
 #define LIGHTMAP_2D			-4		// shader is for 2D rendering
 #define LIGHTMAP_BY_VERTEX	-3		// pre-lit triangle models
 #define LIGHTMAP_WHITEIMAGE	-2
 #define	LIGHTMAP_NONE		-1
 -}
-imageRenderer lmidx txName = stagesRenderer $ if lmidx < 0 then ca else addRenderer ca saLM
+imageRenderer lmidx txName = shaderRenderer $ defaultCommonAttrs {caStages = sa:if lmidx < 0 then [] else {-saLM:-}[]}
   where
-    ca = addRenderer defaultCommonAttrs sa
     sa = defaultStageAttrs
         { saTexture = ST_Map txName
 --        , saBlend = Just (SrcColor,Zero)
@@ -169,28 +192,28 @@ imageRenderer lmidx txName = stagesRenderer $ if lmidx < 0 then ca else addRende
         }
     saLM = defaultStageAttrs
         { saTexture = ST_Lightmap
-        , saTCGen = \(_,_,uv,_) -> uv
+        , saTCGen = TG_Lightmap
 --        , saBlend = Just (SrcColor,One)
         , saBlend = Just (SrcColor,DstColor)
         }
 
-compileBSP :: Trie (Int,Renderer) -> BSPLevel -> V.Vector (Int,SurfaceRenderer)
+compileBSP :: Trie CommonAttrs -> BSPLevel -> V.Vector (Int,(Int,SurfaceRenderer))
 compileBSP shaderMap bsp = V.map convertSurface $ blSurfaces bsp
   where
     lightmaps = V.map (textureFromByteString True 3 128 128 . lmMap) $ blLightmaps bsp
     shaders = V.map (\s -> T.lookup (shName s) shaderMap) $ blShaders bsp
-    convertSurface sf = (shidx,sh (lightmap $ srLightmapNum sf) geom)
+    convertSurface sf = (shidx,(srShaderNum sf,sh (lightmap $ srLightmapNum sf) geom))
       where
         shaderName = shName $ (blShaders bsp) V.! (srShaderNum sf)
         (shidx,sh) = case shaders V.! srShaderNum sf of
-            Just s  -> s
+            Just s  -> shaderRenderer s
             Nothing -> imageRenderer (srLightmapNum sf) shaderName
+        geom :: Mesh
         geom = case srSurfaceType sf of
             Planar       -> toIndexedGPUStream TriangleList v i
             TriangleSoup -> toIndexedGPUStream TriangleList v i
             Patch        -> toGPUStream TriangleList $ concatMap (pointToCube (0:.1:.0:.1:.())) v
             Flare        -> toGPUStream TriangleList $ concatMap (pointToCube (1:.0:.0:.1:.())) v
-            --_            -> toGPUStream TriangleList $ concatMap (pointToCube (1:.1:.0:.1:.())) v
         v = V.toList $ V.take (srNumVertices sf) $ V.drop (srFirstVertex sf) vertices
         i = V.toList $ V.take (srNumIndices sf) $ V.drop (srFirstIndex sf) indices
         lightmap lidx | 0 <= lidx && lidx < V.length lightmaps = lightmaps V.! lidx
@@ -221,30 +244,6 @@ findLeafIdx bl camPos i
     plane   = blPlanes bl V.! ndPlaneNum node
     dist    = plNormal plane `Vect.dotprod` camPos - plDist plane
 
-data Frustum
-    = Frustum
-    { frPlanes :: Vec.Vec6 Plane
-    , ntl :: Vect.Vec3
-    , ntr :: Vect.Vec3
-    , nbl :: Vect.Vec3
-    , nbr :: Vect.Vec3
-    , ftl :: Vect.Vec3
-    , ftr :: Vect.Vec3
-    , fbl :: Vect.Vec3
-    , fbr :: Vect.Vec3
-    }
-
-pointInFrustum p fr = Vec.foldr (\(Plane n d) b -> b && d + n `Vect.dotprod` p >= 0) True $ frPlanes fr
-
-sphereInFrustum p r fr = Vec.foldr (\(Plane n d) b -> b && d + n `Vect.dotprod` p >= (-r)) True $ frPlanes fr
-
-boxInFrustum pp pn fr = Vec.foldr (\(Plane n d) b -> b && d + n `Vect.dotprod` (g pp pn n) >= 0) True $ frPlanes fr
-  where
-    g (Vect.Vec3 px py pz) (Vect.Vec3 nx ny nz) n = Vect.Vec3 (fx px nx) (fy py ny) (fz pz nz)
-      where
-        Vect.Vec3 x y z = n
-        fx:.fy:.fz:.() = Vec.map (\a -> if a > 0 then max else min) (x:.y:.z:.())
-
 cullSurfaces bsp cam frust surfaces = case leafIdx < 0 || leafIdx >= V.length leaves of
     True    -> unsafePerformIO $ print ("findLeafIdx error") >> return surfaces
     False   -> unsafePerformIO $ print ("findLeafIdx ok",leafIdx,camCluster) >> return (V.ifilter (\i _ -> surfaceMask V.! i) surfaces)
@@ -262,34 +261,34 @@ cullSurfaces bsp cam frust surfaces = case leafIdx < 0 || leafIdx >= V.length le
         V.unsafeFreeze mask
     inFrustum a = boxInFrustum (lfMaxs a) (lfMins a) frust
 
-frustum :: Float -> Float -> Float -> Float -> Vect.Vec3 -> Vect.Vec3 -> Vect.Vec3 -> Frustum
-frustum angle ratio nearD farD p l u = Frustum ((pl ntr ntl ftl):.(pl nbl nbr fbr):.(pl ntl nbl fbl):.
-                                                (pl nbr ntr fbr):.(pl ntl ntr nbr):.(pl ftr ftl fbl):.()) ntl ntr nbl nbr ftl ftr fbl fbr
+-- Utility code
+tableTexture :: [Float] -> Texture1D LuminanceFormat
+tableTexture t = unsafePerformIO $ SV.unsafeWith (SV.fromList t) $ \p -> newTexture FloatFormat Luminance16 (length t) [castPtr p]
+
+funcTableSize = 1024 :: Float
+sinTexture = tableTexture [sin (i*2*pi/(funcTableSize-1)) | i <- [0..funcTableSize-1]]
+squareTexture = tableTexture [if i < funcTableSize / 2 then 1 else -1 | i <- [0..funcTableSize-1]]
+sawToothTexture = tableTexture [i / funcTableSize | i <- [0..funcTableSize-1]]
+inverseSawToothTexture = tableTexture $ reverse [i / funcTableSize | i <- [0..funcTableSize-1]]
+triangleTexture = tableTexture $ l1 ++ map ((-1)*) l1
   where
-    pl a b c = Plane n d
-      where
-        n = Vect.normalize $ (c - b) `Vect.crossprod` (a - b)
-        d = -(n `Vect.dotprod` b)
-    m a v = Vect.scalarMul a v
-    ang2rad = pi / 180
-    tang    = tan $ angle * ang2rad * 0.5
-    nh  = nearD * tang
-    nw  = nh * ratio
-    fh  = farD * tang
-    fw  = fh * ratio
-    z   = Vect.normalize $ p - l
-    x   = Vect.normalize $ u `Vect.crossprod` z
-    y   = z `Vect.crossprod` x
+    n = funcTableSize / 4
+    l0 = [i / n | i <- [0..n-1]]
+    l1 = l0 ++ reverse l0
 
-    nc  = p - m nearD z
-    fc  = p - m farD z
+whiteImage = textureFromByteString False 4 8 8 $ SB.replicate (8*8*4) '\255'
+defaultImage = textureFromByteString True 4 16 16 $ SB.pack $ concatMap (replicate 4) [if e x || e y then '\255' else '\32' | y <- [0..15], x <- [0..15]]
+  where
+    e  0 = True
+    e 15 = True
+    e  _ = False
 
-    ntl = nc + m nh y - m nw x
-    ntr = nc + m nh y + m nw x
-    nbl = nc - m nh y - m nw x
-    nbr = nc - m nh y + m nw x
-
-    ftl = fc + m fh y - m fw x
-    ftr = fc + m fh y + m fw x
-    fbl = fc - m fh y - m fw x
-    fbr = fc - m fh y + m fw x
+loadQ3Texture :: Bool -> String -> Texture2D RGBAFormat
+loadQ3Texture mipmap name' = unsafePerformIO $ do
+    let name = "fps/" ++ name'
+        n1 = replaceExtension name "tga"
+        n2 = replaceExtension name "jpg"
+    b0 <- doesFileExist name
+    b1 <- doesFileExist n1
+    b2 <- doesFileExist n2
+    return $ maybe defaultImage id $ textureFromFile mipmap $ if b0 then name else if b1 then n1 else n2

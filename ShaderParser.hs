@@ -2,17 +2,19 @@
 
 module ShaderParser where
 
+--import GPipeUtils
+import Graphics.GPipe hiding ((<*))
 import Control.Applicative hiding (many)
 import Data.Attoparsec.Char8
 import Data.Attoparsec.Combinator
 import Data.ByteString.Char8 (ByteString)
 import Data.Char (toLower)
 import Data.List (foldl')
-import GPipeFPS
-import GPipeUtils
-import Graphics.GPipe hiding ((<*))
+--import Data.Vec
 import qualified Data.ByteString.Char8 as B
 import qualified Data.Trie as T
+
+import GPipeFPSMaterial
 
 -- utility parsers
 shaderName :: Parser ByteString
@@ -55,18 +57,11 @@ str = skipSpace *> string "\"" *> takeWhile1 (\c -> c /= '"') <* char '"'
 
 -- q3 shader related parsers
 
-waveFun = val sinTexture "sin" <|>
-          val triangleTexture "triangle" <|>
-          val squareTexture "square" <|>
-          val sawToothTexture "sawtooth" <|>
-          val inverseSawToothTexture "inversesawtooth" <|>
-          val (error "noise wave function is not supported") "noise"
-
-shaders :: Parser [(ByteString,(Int,Renderer))]
+shaders :: Parser [(ByteString,CommonAttrs)]
 shaders = skip *> many shader <* skip
 
-shader :: Parser (ByteString,(Int,Renderer))
-shader = (\n _ l _ -> (n,stagesRenderer $ foldl' (\s f -> f s) defaultCommonAttrs l)) <$> word <*> kw "{" <*> many shaderAttrs <*> kw "}"
+shader :: Parser (ByteString,CommonAttrs)
+shader = (\n _ l _ -> (n,fixAttribOrder $ foldl' (\s f -> f s) defaultCommonAttrs l)) <$> word <*> kw "{" <*> many shaderAttrs <*> kw "}"
 
 shaderAttrs :: Parser (CommonAttrs -> CommonAttrs)
 shaderAttrs = general <|> q3map <|> editor <|> stage
@@ -113,11 +108,21 @@ q3map = q3MapSun <|> surfaceParm <|> light <|> lightning <|> cloudparams <|> sky
 
 editor = pass <$> (skip *> stringCI "qer_" *> skipWhile (\c -> c /= '\n' && c /= '\r'))
 
-stage = (\_ fl _ ca -> addRenderer ca $ foldl' (\s f -> f s) defaultStageAttrs fl) <$> kw "{" <*> many stageAttrs <*> kw "}"
+stage = (\_ fl _ ca -> ca {caStages = (foldl' (\s f -> f s) defaultStageAttrs fl):caStages ca}) <$> kw "{" <*> many stageAttrs <*> kw "}"
 
 stageAttrs :: Parser (StageAttrs -> StageAttrs)
 stageAttrs = alphaFunc  <|> alphaGen <|> animMap <|> blendFunc <|> clampMap  <|> depthFunc <|> 
              depthWrite <|> detail   <|> mapP    <|> rgbGen    <|> tcGen     <|> tcMod
+
+-- utility
+waveType = val WT_Sin "sin" <|>
+           val WT_Triangle "triangle" <|>
+           val WT_Square "square" <|>
+           val WT_Sawtooth "sawtooth" <|>
+           val WT_InverseSawtooth "inversesawtooth" <|>
+           val WT_Noise "noise"
+
+wave = Wave <$> waveType <*> float <*> float <*> float <*> float
 
 --
 -- General Shader Keywords
@@ -139,23 +144,25 @@ skyParms = pass <$> kw "skyparms" <* (kw "-" <|> (const () <$> word)) <* (kw "-"
 
 cull = pass <$> kw "cull" <* (kw "front" <|> kw "back" <|> kw "disable" <|> kw "none" <|> kw "twosided" <|> kw "backsided")
 
-deformVertexes = kw "deformvertexes" *> (
-    pass <$> kw "autosprite" <|>
-    pass <$> kw "autosprite2" <|>
-    pass <$> kw "bulge" <* float <* float <* float <|>
-    pass <$> kw "move" <* float <* float <* float <* waveFun <* float <* float <* float <* float <|>
-    pass <$> kw "normal" <* float <* float <|> -- amplitude, frequency
-    pass <$> kw "projectionshadow" <|>
-    pass <$> kw "text0" <|>
-    pass <$> kw "text1" <|>
-    pass <$> kw "text2" <|>
-    pass <$> kw "text3" <|>
-    pass <$> kw "text4" <|>
-    pass <$> kw "text5" <|>
-    pass <$> kw "text6" <|> 
-    pass <$> kw "text7" <|>
-    pass <$> kw "wave" <* float <* waveFun <* float <* float <* float <* float
+deformVertexes = (\v ca -> ca {caDeformVertexes = v:caDeformVertexes ca}) <$ kw "deformvertexes" <*> (
+    val D_AutoSprite "autosprite" <|>
+    val D_AutoSprite2 "autosprite2" <|>
+    D_Bulge <$ kw "bulge" <*> float <*> float <*> float <|>
+    D_Move <$ kw "move" <*> v3 <*> wave <|>
+    D_Normal <$ kw "normal" <*> float <*> float <|> -- amplitude, frequency
+    val D_ProjectionShadow "projectionshadow" <|>
+    val D_Text0 "text0" <|>
+    val D_Text1 "text1" <|>
+    val D_Text2 "text2" <|>
+    val D_Text3 "text3" <|>
+    val D_Text4 "text4" <|>
+    val D_Text5 "text5" <|>
+    val D_Text6 "text6" <|> 
+    val D_Text7 "text7" <|>
+    D_Wave <$ kw "wave" <*> float <*> wave
     )
+  where
+    v3 = (\x y z -> x:.y:.z:.()) <$> float <*> float <*> float
 
 fogParms = pass <$> kw "fogparms" <* option () (kw "(") <* float <* float <* float <* option () (kw ")") <* float <* skipRest
 nopicmip = pass <$> kw "nopicmip"
@@ -222,91 +229,48 @@ dstBlend = val One "gl_one"
 
 blendFunc = (\_ b sa -> sa {saBlend = Just b}) <$> kw "blendfunc" <*> choice [blendFuncFunc, (,) <$> srcBlend <*> dstBlend]
 
-{-
-identity - RGBA 1 1 1 1
-identity_lighting (identity_light_byte = ilb) - RGBA ilb ilb ilb ilb
-lighting_diffuse - ??? check: RB_CalcDiffuseColor
-exact_vertex - vertex color
-const - constant color
-vertex (identity_light = il, vertex_color*il) - RGBA (r*il) (g*il) (b*il) a
-one_minus_vertex = (identity_light = il, vertex_color*il) - RGBA ((1-r)*il) ((1-g)*il) ((1-b)*il) a
-fog - fog color
-waveform (c = clamp 0 1 (wave_value * identity_light)) - RGBA c c c 1
-entity - entity's shaderRGB
-one_minus_entity - 1 - entity's shaderRGB
--}
-
-rgbExactVertex _ (_,_,_,r:.g:.b:._:.()) = r:.g:.b:.()
-rgbIdentity _ _ = toGPU (1:.1:.1:.())
-rgbIdentityLighting _ _ = toGPU (identityLight:.identityLight:.identityLight:.())
-rgbConst r g b _ _ = toGPU (r:.g:.b:.())
-rgbVertex _ (_,_,_,r:.g:.b:._:.()) = f r:.f g:.f b:.()
-  where
-    f a = toGPU identityLight * a
-rgbOneMinusVertex _ (_,_,_,r:.g:.b:._:.()) = f r:.f g:.f b:.()
-  where
-    f a = 1 - toGPU identityLight * a
-
 rgbGen = (\_ v sa -> sa {saRGBGen = v}) <$> kw "rgbgen" <*> (
-    val rgbIdentity "wave" <* waveFun <* float <* float <* float <* float <|> -- TODO
-    (\_ _ r g b _ -> rgbConst r g b) <$> kw "const" <*> kw "(" <*> float <*> float <*> float <*> kw ")" <|>
-    val rgbIdentity "identity" <|> 
-    val rgbIdentityLighting "identitylighting" <|> 
-    val rgbIdentity "entity" <|>  -- TODO
-    val rgbIdentity "oneminusentity" <|> -- TODO
-    val rgbExactVertex "exactvertex" <|> 
-    val rgbVertex "vertex" <|> 
-    val rgbIdentity "lightingdiffuse" <|> -- TODO
-    val rgbOneMinusVertex "oneminusvertex"
+    RGB_Wave <$ kw "wave" <*> wave <|>
+    RGB_Const <$ kw "const" <* kw "(" <*> float <*> float <*> float <* kw ")" <|>
+    val RGB_Identity "identity" <|> 
+    val RGB_IdentityLighting "identitylighting" <|> 
+    val RGB_Entity "entity" <|>
+    val RGB_OneMinusEntity "oneminusentity" <|>
+    val RGB_ExactVertex "exactvertex" <|> 
+    val RGB_Vertex "vertex" <|> 
+    val RGB_LightingDiffuse "lightingdiffuse" <|>
+    val RGB_OneMinusVertex "oneminusvertex"
     )
 
-{-
-identity - alpha = 1
-const - constant alpha
-wave - clamped waveform
-lightingspecular - ??? check: RB_CalcSpecularAlpha
-entity - entity's shaderRGBA's alpha
-oneminusentity - 1 - entity's shaderRGBA's alpha
-vertex - vertex alpha
-oneminusvertex - 1 - vertex alpha
-portal - ???
--}
-alphaIdentity _ _ = 1
-alphaConst a _ _ = toGPU a
-alphaVertex _ (_,_,_,_:._:._:.a:.()) = a
-alphaOneMinusVertex _ (_,_,_,_:._:._:.a:.()) = 1 - a
-
 alphaGen = (\_ v sa -> sa {saAlphaGen = v}) <$> kw "alphagen" <*> (
-    val alphaIdentity "wave" <* waveFun <* float <* float <* float <* float <|> -- TODO
-    (\_ a -> alphaConst a) <$> kw "const" <*> float <|>
-    val alphaIdentity "portal" <* float <|> -- TODO
-    val alphaIdentity "identity" <|> 
-    val alphaIdentity "entity" <|> -- TODO
-    val alphaIdentity "oneminusentity" <|> -- TODO
-    val alphaVertex "vertex" <|>
-    val alphaIdentity "lightingspecular" <|> -- TODO
-    val alphaOneMinusVertex "oneminusvertex"
+    A_Wave <$ kw "wave" <*> wave <|>
+    A_Const <$ kw "const" <*> float <|>
+    val A_Portal "portal" <* float <|>
+    val A_Identity "identity" <|> 
+    val A_Entity "entity" <|>
+    val A_OneMinusEntity "oneminusentity" <|>
+    val A_Vertex "vertex" <|>
+    val A_LightingSpecular "lightingspecular" <|>
+    val A_OneMinusVertex "oneminusvertex"
     )
 
 tcGen = (\_ v sa -> sa {saTCGen = v}) <$> kw "tcgen" <*> (
-    val (\(_,uv,_,_) -> uv) "base"
-    <|> val (\(_,_,uv,_) -> uv) "lightmap"
-    <|> val (\(_,uv,_,_) -> uv) "environment" -- TODO, check: RB_CalcEnvironmentTexCoords
-    <|> ((\_ u v -> (\(p,_,_,_) -> (dot p u):.(dot p v):.())) <$> kw "vector" <*> v3 <*> v3))
+    val TG_Base "base" <|>
+    val TG_Lightmap "lightmap" <|>
+    val TG_Environment "environment" <|>
+    TG_Vector <$ kw "vector" <*> v3 <*> v3)
   where
-    v3 = (\_ x y z _ -> toGPU $ x:.y:.z:.()) <$> kw "(" <*> float <*> float <*> float <*> kw ")"
+    v3 = (\_ x y z _ -> x:.y:.z:.()) <$> kw "(" <*> float <*> float <*> float <*> kw ")"
 
 tcMod = (\_ v sa -> sa {saTCMod = v:saTCMod sa}) <$> kw "tcmod" <*> (
-    val idfun "entitytranslate" <|>
-    val idfun "rotate" <* float <* skipRest <|>
-    (\_ su sv t (u:.v:.()) -> fract' (u+t*toGPU su):.fract' (v+t*toGPU sv):.()) <$> kw "scroll" <*> float <*> float <* skipRest <|>
-    (\_ su sv _ (u:.v:.()) -> (u*toGPU su):.(v*toGPU sv):.()) <$> kw "scale" <*> float <*> float <* skipRest <|>
-    val idfun "stretch" <* waveFun <* float <* float <* float <* float <|>
-    val idfun "transform" <* float <* float <* float <* float <* float <* float <|>
-    val idfun "turb" <* option () (kw "sin") <* float <* float <* float <* float
+    val TM_EntityTranslate "entitytranslate" <|>
+    TM_Rotate <$ kw "rotate" <*> float <* skipRest <|>
+    TM_Scroll <$ kw "scroll" <*> float <*> float <* skipRest <|>
+    TM_Scale <$ kw "scale" <*> float <*> float <* skipRest <|>
+    TM_Stretch <$ kw "stretch" <*> wave <|>
+    TM_Transform <$ kw "transform" <*> float <*> float <*> float <*> float <*> float <*> float <|>
+    TM_Turb <$ kw "turb" <* option () (kw "sin") <*> float <*> float <*> float <*> float
     )
-  where
-    idfun = \_ uv -> uv
 
 depthFunc = (\_ v sa -> sa {saDepthFunc = v}) <$> kw "depthfunc" <*> (val Lequal "lequal" <|> val Equal "equal")
 depthWrite = (\_ sa -> sa {saDepthWrite = True}) <$> kw "depthwrite"

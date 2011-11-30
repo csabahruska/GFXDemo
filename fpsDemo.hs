@@ -4,7 +4,8 @@ import Control.Monad
 import Data.Attoparsec.Char8
 import Data.IORef
 import FRP.Elerea.Param
-import GPipeFPS
+import GPipeFPSRender
+import GPipeFPSMaterial
 import GPipeUtils
 import Graphics.GPipe
 import Graphics.Rendering.OpenGL ( Position(..) )
@@ -35,7 +36,7 @@ import Graphics.UI.GLUT( Window,
                          get)
 
 
-loadShaders :: IO (T.Trie (Int,Renderer))
+loadShaders :: IO (T.Trie CommonAttrs)
 loadShaders = do
     l <- filter (\a -> ".shader" == takeExtension a) <$> getDirectoryContents "fps/scripts"
     sl <- forM l $ \n -> do
@@ -68,13 +69,13 @@ main = do
     (buttonPress,buttonPressSink) <- external False
     (fblrPress,fblrPressSink) <- external (False,False,False,False,False)
 
-    --bsp <- B.loadBSP "fps/maps/q3gwdm1.bsp"
+    --bsp <- B.loadBSP "fps/maps/cpm4a.bsp"
     --bsp <- B.loadBSP "fps/maps/ct3ctf2.bsp"
     --bsp <- B.loadBSP "fps/maps/q3ctf2.bsp"
-    bsp <- B.loadBSP "fps/maps/q3dm1.bsp"
+    --bsp <- B.loadBSP "fps/maps/q3dm1.bsp"
     --bsp <- B.loadBSP "fps/maps/q3dm6.bsp"
     --bsp <- B.loadBSP "fps/maps/q3dm3.bsp"
-    --bsp <- B.loadBSP "fps/maps/q3dm16.bsp"
+    bsp <- B.loadBSP "fps/maps/q3dm11.bsp"
     --bsp <- B.loadBSP "fps/maps/q3dm17.bsp"
     --bsp <- B.loadBSP "fps/maps/q3dm18.bsp"
     --bsp <- B.loadBSP "fps/maps/q3tourney6.bsp"
@@ -181,7 +182,7 @@ drawGLScene bsp surfaces (w,h) (cam,dir,up,_) time buttonPress = do
         cm = (V.fromProjective (lookat cam (cam + dir) up)) V..*. (V.fromProjective $ V.scaling (V.Vec3 scal scal scal))
         pm = U.perspective near far fovRad (fromIntegral w / fromIntegral h)
         culledSurfaces = cullSurfaces bsp cam frust surfaces
-        frust = frustum fovDeg (fromIntegral w / fromIntegral h) (near/scal) (far/scal) cam (cam+dir) up
+        frust = frustum fovDeg (fromIntegral w / fromIntegral h) (near) (far) cam (cam+dir) up
     print ("cull nums",VC.length surfaces,VC.length culledSurfaces)
     return $ renderSurfaces time (toGPU time) (convMat (cm V..*. pm)) culledSurfaces
 
