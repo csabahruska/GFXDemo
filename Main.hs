@@ -5,7 +5,7 @@ import Binary.Fast
 import Codec.Image.STB
 import Control.Applicative
 import Control.Monad
-import Data.Bitmap
+import Data.Bitmap.Pure
 import Data.ByteString.Char8 (ByteString)
 import Data.Vect
 import FRP.Elerea.Param

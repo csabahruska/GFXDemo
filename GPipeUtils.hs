@@ -5,7 +5,7 @@ import Control.Monad
 import Foreign
 import Data.IORef
 import Codec.Image.STB
-import Data.Bitmap.Pure (bitmapToByteString)
+--import Data.Bitmap.Pure (withBitmap)
 import Data.Bitmap.IO
 import Foreign.Ptr
 import Graphics.GPipe
@@ -34,10 +34,13 @@ addAlpha s = SB.pack $ go $ SB.unpack s
     go (r:g:b:xs) = r:g:b:a:go xs
     go _ = []
 
+bitmapToByteString :: PixelComponent t => IOBitmap t -> SB.ByteString
+bitmapToByteString b = unsafePerformIO $ withIOBitmap b $ \_ _ _ p -> SB.packCStringLen (castPtr p,bitmapSizeInBytes b)
+
 textureFromByteString :: Bool -> Int -> Int -> Int -> SB.ByteString -> Texture2D RGBAFormat
 textureFromByteString mipmap c w h s = unsafePerformIO $ do
     bm <- case c of
-        3   -> SB.useAsCString (addAlpha s) $ \p -> copyBitmapFromPtr (w,h) 4 0 (castPtr p) Nothing :: IO (Bitmap Word8)
+        3   -> SB.useAsCString (addAlpha s) $ \p -> copyBitmapFromPtr (w,h) 4 0 (castPtr p) Nothing :: IO (IOBitmap Word8)
         4   -> SB.useAsCString s $ \p -> copyBitmapFromPtr (w,h) 4 0 (castPtr p) Nothing
         _   -> error "unsupported texture format!"
     let sizes x y = if nx == 0 || ny == 0 then [] else (nx,ny):sizes nx ny
@@ -68,7 +71,7 @@ textureFromFile mipmap name = unsafePerformIO $ do
                 Right img -> do
                     putStrLn ("Load texture: " ++ name)
                     let (w,h) = bitmapSize img
-                        tx = textureFromByteString mipmap (bitmapNChannels img) w h (bitmapToByteString img)
+                        tx = textureFromByteString mipmap (bitmapNChannels img) w h (bitmapToByteString $ unsafeThawBitmap img)
                     writeIORef textureCache $ T.insertIfAbsent namesb tx ic
                     return $ Just $ seq tx tx
 

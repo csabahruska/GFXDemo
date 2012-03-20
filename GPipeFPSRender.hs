@@ -183,7 +183,7 @@ renderSurfaces time' time worldProjection faces = V.foldl' (foldl' (\fb (_,fun) 
 #define LIGHTMAP_WHITEIMAGE	-2
 #define	LIGHTMAP_NONE		-1
 -}
-imageRenderer lmidx txName = shaderRenderer $ defaultCommonAttrs {caStages = sa:if lmidx < 0 then [] else {-saLM:-}[]}
+imageRenderer lmidx txName = shaderRenderer $ defaultCommonAttrs {caStages = sa:if lmidx < 0 then [] else saLM:[]}
   where
     sa = defaultStageAttrs
         { saTexture = ST_Map txName

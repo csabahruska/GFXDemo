@@ -144,7 +144,7 @@ defaultStageAttrs = StageAttrs
 
 fixAttribOrder ca = ca
     { caDeformVertexes = reverse $ caDeformVertexes ca
-    , caStages = take 1 $ reverse $ map fixStage $ caStages ca
+    , caStages = reverse $ map fixStage $ caStages ca
     }
   where
     fixStage sa = sa
