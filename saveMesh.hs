@@ -4,8 +4,8 @@ import Control.Monad
 import Data.ByteString.Char8 (ByteString)
 import System.Environment
 import ThriftUtils
-import qualified Data.ByteString.Char8 as SB
 
+main :: IO ()
 main = do
     l <- getArgs
     forM_ (map SB.pack l) $ \n -> do
