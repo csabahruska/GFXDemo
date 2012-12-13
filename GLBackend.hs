@@ -4,13 +4,10 @@ module GLBackend where
 import Control.Applicative
 import Control.Monad
 import Data.Bitmap
-import Data.Bitmap.IO
 import Data.ByteString.Char8 (ByteString)
 import Data.List
 import Data.Maybe
 import Data.Trie (Trie)
---import Data.Vect
---import Data.Vect.Float.Instances
 import Foreign
 import qualified Data.ByteString.Char8 as SB
 import qualified Data.Set as Set
@@ -600,7 +597,7 @@ uploadTexture2D' (w,h) intf f ptr = do
     return to
 
 compileColorTexture2D' :: Bitmap Word8 -> IO GLColorTexture2D
-compileColorTexture2D' b = withBitmap b $ \size 3 padding ptr -> GLColorTexture2D <$> uploadTexture2D size gl_RGBA32F gl_RGB ptr
+compileColorTexture2D' b = withBitmap b $ \size 3 _padding ptr -> GLColorTexture2D <$> uploadTexture2D size gl_RGBA32F gl_RGB ptr
 
 newGLDepthTexture2D' :: Size -> IO GLDepthTexture2D
 newGLDepthTexture2D' size = GLDepthTexture2D <$> uploadTexture2D size gl_DEPTH_COMPONENT32F gl_DEPTH_COMPONENT nullPtr

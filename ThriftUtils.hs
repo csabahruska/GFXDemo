@@ -1,29 +1,26 @@
-{-# LANGUAGE TupleSections #-}
 module ThriftUtils (remoteMesh,sblToV,vToSB) where
 
 import Control.Applicative
 import Control.Monad
-import Control.Monad.Fix
 import Data.ByteString.Char8 (ByteString)
-import Foreign
+import Data.Int
+import Foreign.Marshal.Utils
+import Foreign.Ptr
+import Foreign.Storable
 import Network
-import Network.URI
 import qualified Data.ByteString.Char8 as SB
-import qualified Data.ByteString.Internal as SB
 import qualified Data.ByteString.Lazy as LB
 import qualified Data.Vector.Storable as V
 import qualified Data.Vector.Storable.Mutable as MV
 import qualified GraphicsPipeline as GFX
 
-import Thrift
 import Thrift.Protocol.Binary
 import Thrift.Transport.Handle
-import Thrift.Transport.HttpClient
 
 import Thrift.ContentProvider_Client
 import Thrift.Content_Types
 
-import System.IO.Unsafe
+import System.IO.Unsafe (unsafePerformIO)
 
 sblToV :: Storable a => [SB.ByteString] -> V.Vector a
 sblToV ls = v
@@ -46,7 +43,7 @@ toV :: Storable a => [LB.ByteString] -> V.Vector a
 toV lb = sblToV $ concatMap LB.toChunks lb
 
 unpackAttribute :: VertexAttribute -> (ByteString,GFX.Attribute)
-unpackAttribute (VertexAttribute (Just an) (Just at) (Just ad)) = (SB.pack an,) $ case at of
+unpackAttribute (VertexAttribute (Just an) (Just at) (Just ad)) = (,) (SB.pack an) $ case at of
     AT_Float -> GFX.A_Float $ toV ad
     AT_Vec2  -> GFX.A_Vec2  $ toV ad
     AT_Vec3  -> GFX.A_Vec3  $ toV ad

@@ -1,8 +1,7 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 module Binary.Fast where
 
 import Control.Applicative
-import Control.Monad
 import Data.Binary
 import Data.ByteString.Char8 (ByteString)
 import Foreign
