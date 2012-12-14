@@ -6,12 +6,10 @@ import Codec.Image.STB
 import Control.Applicative
 import Control.Monad
 import Data.Bitmap.Pure
-import Data.ByteString.Char8 (ByteString)
 import Data.Vect
 import FRP.Elerea.Param
 import GLBackend
 import GraphicsPipeline
-import ThriftUtils
 import Utils
 import qualified Data.ByteString.Char8 as SB
 import Graphics.Rendering.OpenGL.Raw.Core32
@@ -93,10 +91,10 @@ drawGLScene :: SSAO -> VSM -> Bloom -> GLFramebuffer -> GLColorTexture2D -> GLCo
             -> Float
             -> Bool
             -> IO ()
-drawGLScene ssao vsm bloom fb rtex tex p objs (w,h) _re1 re2 re3 (cam,dir,up,_) time buttonPress = do
+drawGLScene _ssao vsm _bloom _fb _rtex _tex p objs (w,h) _re1 _re2 _re3 (cam,dir,up,_) time _buttonPress = do
     let cm = fromProjective (lookat cam (cam + dir) up)
         pm = perspective 0.1 50 90 (fromIntegral w / fromIntegral h)
-
+        {-
         render t = withDepth $ do
             clearGLFramebuffer
             l <- forM objs $ \(worldMat,mesh) -> renderGLMesh' p mesh $ and <$> sequence
@@ -109,7 +107,7 @@ drawGLScene ssao vsm bloom fb rtex tex p objs (w,h) _re1 re2 re3 (cam,dir,up,_) 
             let b = and l
             unless b $ putStrLn "render fail"
             return b
-
+        -}
     --withFramebuffer fb Nothing Nothing [rtex] $ render tex
     --render rtex
     --render tex

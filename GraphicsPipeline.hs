@@ -5,7 +5,7 @@ import Data.Bitmap
 import Data.ByteString.Char8 (ByteString)
 import Data.Int
 import Data.Vect
-import Data.Vect.Float.Instances
+import Data.Vect.Float.Instances ()
 import qualified Data.Vector.Storable as V
 
 data AttributeType
